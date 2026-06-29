@@ -1,4 +1,4 @@
-# isd-2026-AI-Document-Intelligence-Nong'jingjok
+# isd-2026-Nong'jingjok-AI-Document-Intelligence
 
 เลือกโปรเจค 2 ocr+llm
 
