@@ -12,7 +12,7 @@ venv.bak/
 
 # Data and Outputs
 data/input/
-outputs/
+outputs_no_preprocess/
 *.pdf
 *.jpg
 *.png
