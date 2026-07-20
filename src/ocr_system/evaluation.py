@@ -62,12 +62,20 @@ def evaluate_from_files(ground_truth_json: str | Path, prediction_json: str | Pa
     with Path(prediction_json).open("r", encoding="utf-8") as f:
         prediction = json.load(f)
 
-    source_name = Path(prediction["source_path"]).name
+    # Handle missing source_path in prediction
+    source_path = prediction.get("source_path", str(prediction_json))
+    source_name = Path(source_path).name
+
     reference = ground_truth.get(source_name) or ground_truth.get(Path(source_name).stem)
     if reference is None:
         reference = extract_all_text(ground_truth)
     elif not isinstance(reference, str):
         reference = extract_all_text(reference)
 
-    result = evaluate_text(reference, prediction["text"], file_name=source_name)
+    # Handle missing text in prediction (e.g. structured output)
+    pred_text = prediction.get("text")
+    if pred_text is None:
+        pred_text = extract_all_text(prediction)
+
+    result = evaluate_text(reference, pred_text, file_name=source_name)
     return asdict(result)
