@@ -31,6 +31,13 @@ def parse_args():
     ev.add_argument("prediction_json")
     ev.add_argument("--output", default="outputs/evaluation_result.json")
 
+    ex = sub.add_parser("extract", help="Extract curriculum from OCR JSON")
+    ex.add_argument("ocr_json")
+    ex.add_argument("--output", default="outputs/extracted_curriculum.json")
+    ex.add_argument("--program", default="DSBA")
+    ex.add_argument("--plan", default="no_coop")
+    ex.add_argument("--template", default=None)
+
     return parser.parse_args()
 
 
@@ -64,6 +71,17 @@ def main():
         result = evaluate_from_files(args.ground_truth_json, args.prediction_json)
         save_json(result, args.output)
         print(json.dumps(result, ensure_ascii=False, indent=2))
+
+    elif args.command == "extract":
+        from .curriculum_extraction import extract_curriculum_from_file
+        result = extract_curriculum_from_file(
+            args.ocr_json,
+            template_path=args.template,
+            program=args.program,
+            plan=args.plan
+        )
+        save_json(result, args.output)
+        print(f"[green]Extraction done[/green]: {args.output}")
 
 
 if __name__ == "__main__":
