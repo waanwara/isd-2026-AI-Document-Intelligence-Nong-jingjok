@@ -401,3 +401,19 @@ python -m ocr_system.cli ocr data/input/sample.jpg --engine tesseract --no-prepr
 ```
 
 ---
+
+## 5. Curriculum Extraction (Lab 4)
+สำหรับสัปดาห์ที่ 4 เราได้เพิ่มคำสั่งใหม่คือ `extract` เพื่อใช้จัดโครงสร้างผลลัพธ์ OCR ดิบ ให้กลายเป็นรูปแบบ JSON ที่มีโครงสร้างหลักสูตร (Academic Plan) ตรงตามไฟล์ Ground Truth
+
+วิธีใช้งาน:
+ให้นำไฟล์ผลลัพธ์จากคำสั่ง OCR (`_ocr.json`) มารันคำสั่ง `extract`:
+```bash
+python -m ocr_system.cli extract outputs/sample_ocr.json --output outputs/extracted_curriculum.json
+```
+
+เมื่อได้ไฟล์ `extracted_curriculum.json` แล้ว สามารถนำไปรันคำสั่ง `evaluate` เพื่อคำนวณคะแนน CER/WER เทียบกับ Ground Truth แบบซับซ้อนของหลักสูตรได้ทันที:
+```bash
+python -m ocr_system.cli evaluate data/ground_truth/DSBA/DSBA_academic_plan_no_coop.json outputs/extracted_curriculum.json
+```
+
+---
