@@ -202,6 +202,23 @@ brew install tesseract-lang
 data/input/
 ```
 
+### ตัวเลือก pipeline แก้ข้อความ OCR ภาษาไทย/อังกฤษ
+โปรเจกต์ตอนนี้มี pipeline สำหรับปรับข้อความหลัง OCR โดยเปิดใช้งานตามค่าเริ่มต้น:
+
+```bash
+python -m ocr_system.cli ocr data/input/sample.pdf --engine tesseract --output-dir outputs
+```
+
+ถ้าต้องการปิดการแก้ข้อความ:
+```bash
+python -m ocr_system.cli ocr data/input/sample.pdf --disable-postprocess
+```
+
+ถ้าต้องการใช้ LLM เพื่อแก้ OCR เพิ่มเติม (ต้องตั้ง OPENAI_API_KEY ก่อน):
+```bash
+python -m ocr_system.cli ocr data/input/sample.pdf --enable-llm-postprocess --llm-model gpt-4o-mini
+```
+
 ตัวอย่าง:
 ```text
 data/input/sample.pdf

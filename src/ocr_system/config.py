@@ -21,3 +21,6 @@ class OCRConfig:
     min_confidence: float = 0.0
     device: str = "cpu"
     page_image_dir: Path = field(default_factory=lambda: Path("outputs/pages"))
+    enable_postprocess: bool = True
+    enable_llm_postprocess: bool = False
+    llm_model: str | None = None

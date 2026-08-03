@@ -4,6 +4,7 @@ from .config import OCRConfig
 from .document_loader import load_document_pages
 from .engine_factory import build_engine
 from .preprocessing import read_image, preprocess_image, save_debug_image
+from .postprocessing import OCRTextPostProcessor, llm_correction
 from .schemas import OCRDocumentResult, OCRPageResult
 from .utils.io import ensure_dir, save_json, save_text
 
@@ -13,6 +14,20 @@ def run_ocr(config: OCRConfig) -> OCRDocumentResult:
     page_dir = ensure_dir(config.page_image_dir)
     pages = load_document_pages(config.input_path, page_dir, dpi=config.dpi)
     engine = build_engine(config)
+
+    postprocessor = OCRTextPostProcessor()
+    if config.enable_postprocess:
+        postprocessor = OCRTextPostProcessor()
+    else:
+        postprocessor = OCRTextPostProcessor(enable_normalization=False, enable_common_ocr_fix=False, enable_llm=False)
+
+    if config.enable_llm_postprocess:
+        postprocessor = OCRTextPostProcessor(
+            enable_normalization=True,
+            enable_common_ocr_fix=True,
+            enable_llm=True,
+            llm_caller=lambda text: llm_correction(text, model=config.llm_model),
+        )
 
     page_results: list[OCRPageResult] = []
     for page_no, image_path in enumerate(pages, start=1):
@@ -29,8 +44,9 @@ def run_ocr(config: OCRConfig) -> OCRDocumentResult:
         if config.min_confidence > 0:
             lines = [x for x in lines if x.confidence is None or x.confidence >= config.min_confidence]
 
-        text = "\n".join(line.text for line in lines if line.text.strip())
-        page_results.append(OCRPageResult(page=page_no, text=text, lines=lines, image_path=str(image_path)))
+        raw_text = "\n".join(line.text for line in lines if line.text.strip())
+        corrected_text = postprocessor.process(raw_text)
+        page_results.append(OCRPageResult(page=page_no, text=corrected_text, lines=lines, image_path=str(image_path)))
 
     full_text = "\n\n".join(f"--- Page {p.page} ---\n{p.text}" for p in page_results)
     result = OCRDocumentResult(

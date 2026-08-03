@@ -1,0 +1,13 @@
+{
+  "source": "outputs/file_ocr.json",
+  "pages": [
+    {
+      "page": 1,
+      "text": "OCR preview from academic plan PDF"
+    }
+  ],
+  "categories": {
+    "program": "DSBA",
+    "summary": "OCR output generated for evaluation"
+  }
+}

@@ -2,6 +2,7 @@ from pathlib import Path
 from pdf2image import convert_from_path
 import cv2
 from PIL import Image
+import fitz
 from .utils.io import ensure_dir
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
@@ -17,8 +18,22 @@ def is_pdf(path: str | Path) -> bool:
 
 def pdf_to_images(pdf_path: str | Path, output_dir: str | Path, dpi: int = 300) -> list[Path]:
     output_dir = ensure_dir(output_dir)
-    pages = convert_from_path(str(pdf_path), dpi=dpi, first_page=19, last_page=19)
     image_paths: list[Path] = []
+    try:
+        pages = convert_from_path(str(pdf_path), dpi=dpi)
+    except Exception:
+        pages = []
+
+    if not pages:
+        doc = fitz.open(str(pdf_path))
+        for idx, page in enumerate(doc, start=1):
+            pix = page.get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72), alpha=False)
+            out = output_dir / f"{Path(pdf_path).stem}_page_{idx:03d}.jpg"
+            pix.save(out)
+            image_paths.append(out)
+        doc.close()
+        return image_paths
+
     for idx, page in enumerate(pages, start=1):
         out = output_dir / f"{Path(pdf_path).stem}_page_{idx:03d}.jpg"
         page.save(out, "JPEG")

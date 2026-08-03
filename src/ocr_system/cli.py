@@ -6,6 +6,7 @@ from .config import OCRConfig
 from .pipeline import run_ocr
 from .evaluation import evaluate_from_files
 from .field_extraction import extract_common_fields
+from .dataset_eval import evaluate_dataset
 from .utils.io import save_json
 
 
@@ -25,11 +26,19 @@ def parse_args():
     ocr.add_argument("--save-debug-images", action="store_true")
     ocr.add_argument("--min-confidence", type=float, default=0.0)
     ocr.add_argument("--device", default="cpu")
+    ocr.add_argument("--disable-postprocess", action="store_true", help="Disable text cleanup after OCR")
+    ocr.add_argument("--enable-llm-postprocess", action="store_true", help="Use LLM-based OCR correction when OPENAI_API_KEY is available")
+    ocr.add_argument("--llm-model", default=None, help="OpenAI-compatible model name for LLM post-processing")
 
     ev = sub.add_parser("evaluate", help="Evaluate OCR JSON against ground truth JSON")
     ev.add_argument("ground_truth_json")
     ev.add_argument("prediction_json")
     ev.add_argument("--output", default="outputs/evaluation_result.json")
+
+    ds = sub.add_parser("dataset-eval", help="Evaluate a batch of prediction files against a dataset directory")
+    ds.add_argument("dataset_dir")
+    ds.add_argument("prediction_dir")
+    ds.add_argument("--output", default="outputs/dataset_evaluation.json")
 
     return parser.parse_args()
 
@@ -52,6 +61,9 @@ def main():
             save_debug_images=args.save_debug_images,
             min_confidence=args.min_confidence,
             device=args.device,
+            enable_postprocess=not args.disable_postprocess,
+            enable_llm_postprocess=args.enable_llm_postprocess,
+            llm_model=args.llm_model,
         )
         result = run_ocr(config)
         fields = extract_common_fields(result.text)
@@ -62,6 +74,11 @@ def main():
 
     elif args.command == "evaluate":
         result = evaluate_from_files(args.ground_truth_json, args.prediction_json)
+        save_json(result, args.output)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+
+    elif args.command == "dataset-eval":
+        result = evaluate_dataset(args.dataset_dir, args.prediction_dir)
         save_json(result, args.output)
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
