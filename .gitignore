@@ -2,8 +2,8 @@
 data/*.pdf
 data/*.PDF
 
-# ผลลัพธ์จากการรัน
-groupB_curriculum/output/
+# ผลลัพธ์จากการรัน (อนุญาตให้ push เฉพาะไฟล์ json/csv เพื่อส่งงาน)
+# groupB_curriculum/output/
 
 # Python cache
 __pycache__/
