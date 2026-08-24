@@ -1,0 +1,8 @@
+{
+  "file": "extracted_curriculum.json",
+  "cer": 0.9302367288378766,
+  "wer": 1.4989247311827958,
+  "exact_match": false,
+  "reference_chars": 11616,
+  "prediction_chars": 2053
+}
