@@ -60,7 +60,7 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 MODEL_OCR = os.getenv("LAB7_MODEL_OCR", "scb10x/typhoon-ocr1.5-3b")
 MODEL_TEXT = os.getenv("LAB7_MODEL_TEXT", "qwen3:4b")
 DPI = int(os.getenv("LAB7_DPI", "150"))
-REQUEST_TIMEOUT = 900
+REQUEST_TIMEOUT = 1500
 
 # ⭐ ค่าเฉพาะของกลุ่ม B
 # เล่มหลักสูตรมี 50-150 หน้า ส่งเข้าโมเดลทีเดียวไม่ได้แน่นอน
@@ -384,8 +384,9 @@ TYPHOON_PROMPT = ("Below is an image of a document page. "
 
 def ollama_chat(model: str, messages: list[dict], *, fmt: dict | None = None,
                 images: list[bytes] | None = None, temperature: float = 0.0,
-                retries: int = 2) -> str:
-    """เหมือนกับของกลุ่ม A — ดูคำอธิบายละเอียดในเอกสารแล็บ ส่วนที่ 4"""
+                retries: int = 1) -> str:
+    """เหมือนกับของกลุ่ม A — ดูคำอธิบายละเอียดในเอกสารแล็บ ส่วนที่ 4
+       (ปรับ retries เป็น 1 เพื่อลดเวลารอเมื่อเกิดข้อผิดพลาด)"""
     requests = _need("requests")
 
     if images:
@@ -402,8 +403,8 @@ def ollama_chat(model: str, messages: list[dict], *, fmt: dict | None = None,
             #    เพราะตารางหลักสูตรยาว 90+ แถว
             #    ⚠️ ยิ่ง num_ctx ใหญ่ ยิ่งกินแรม: 32768 tokens ~ +2-3 GB
             #    ถ้าเครื่องแรมน้อย ให้ลดเหลือ 16384 แล้วเพิ่มการแบ่ง chunk แทน
-            "num_ctx": 32768,
-            "num_predict": 16384,
+            "num_ctx": 16384,
+            "num_predict": 2000,
         },
     }
     if fmt is not None:
@@ -594,49 +595,99 @@ def pipeline_vlm(pages: list[bytes], outdir: Path) -> dict:
       --> ทางแก้ในระบบจริงคือใส่ "overlap" ให้ก้อนซ้อนกัน 1 หน้า
           หรือส่งหัวข้อหมวดที่เจอล่าสุดไปกับก้อนถัดไป (โจทย์ท้าทายข้อ 1)
     """
-    md_pages: list[str] = []
-    for i, png in enumerate(pages):
-        print(f"    [ขั้น 1/2] Typhoon-OCR หน้า {i + 1}/{len(pages)}")
-        md = ollama_chat(MODEL_OCR,
-                         [{"role": "user", "content": TYPHOON_PROMPT}],
-                         images=[png], temperature=0.1)
-        md_pages.append(md)
+    inter_path = outdir / "intermediate_vlm.md"
 
-    (outdir / "intermediate_vlm.md").write_text(
-        "\n\n---\n\n".join(md_pages), encoding="utf-8")
-    print(f"    บันทึก Markdown กลางทาง: {outdir / 'intermediate_vlm.md'}")
+    # --- ขั้น 1/2 : Typhoon-OCR (ข้ามถ้ามีไฟล์กลางทางอยู่แล้ว) ---
+    if inter_path.exists():
+        print(f"    [ขั้น 1/2] พบไฟล์กลางทาง '{inter_path.name}' — ข้าม Typhoon-OCR")
+        raw_md = inter_path.read_text(encoding="utf-8")
+        md_pages = raw_md.split("\n\n---\n\n")
+        print(f"      โหลด {len(md_pages)} หน้าจากไฟล์เดิม")
+    else:
+        md_pages: list[str] = []
+        for i, png in enumerate(pages):
+            print(f"    [ขั้น 1/2] Typhoon-OCR หน้า {i + 1}/{len(pages)}")
+            md = ollama_chat(MODEL_OCR,
+                             [{"role": "user", "content": TYPHOON_PROMPT}],
+                             images=[png], temperature=0.1)
+            md_pages.append(md)
+            # บันทึกทีละหน้า — ถ้าถูก interrupt กลางทางยังมีข้อมูลบางส่วนเหลืออยู่
+            inter_path.write_text("\n\n---\n\n".join(md_pages), encoding="utf-8")
 
-    return _text_to_json_chunked(md_pages)
+        print(f"    บันทึก Markdown กลางทาง: {inter_path}")
+
+    return _text_to_json_chunked(md_pages, outdir)
 
 
-def _text_to_json_chunked(md_pages: list[str]) -> dict:
-    """แบ่งหน้าเป็นก้อน แล้วเรียก text LLM ทีละก้อน"""
+def _text_to_json_chunked(md_pages: list[str], outdir: Path | None = None) -> dict:
+    """แบ่งหน้าเป็นก้อน แล้วเรียก text LLM ทีละก้อน
+
+    ปรับปรุง:
+      - เซฟผลลัพธ์ทีละก้อนลงไฟล์ chunk_001.json, chunk_002.json, ...
+      - Resume ได้ — ถ้ามีไฟล์ chunk เดิมอยู่แล้วจะข้ามไปทำก้อนถัดไป
+      - เขียน progress.log บันทึกสถานะแต่ละก้อน
+    """
     chunks: list[dict] = []
     n_chunks = (len(md_pages) + PAGES_PER_CHUNK - 1) // PAGES_PER_CHUNK
+    progress_path = outdir / "progress.log" if outdir else None
+
+    def _log_progress(msg: str) -> None:
+        """เขียน progress log ลงไฟล์ + พิมพ์หน้าจอ"""
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{timestamp}] {msg}"
+        print(f"    {msg}")
+        if progress_path:
+            with open(progress_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+
+    _log_progress(f"=== เริ่ม JSON extraction: {n_chunks} ก้อน ===")
 
     for ci in range(n_chunks):
+        chunk_num = ci + 1
+        chunk_file = outdir / f"chunk_{chunk_num:03d}.json" if outdir else None
+
+        # --- Resume: ข้ามก้อนที่เสร็จแล้ว ---
+        if chunk_file and chunk_file.exists():
+            try:
+                cached = json.loads(chunk_file.read_text(encoding="utf-8"))
+                n_cached = len(cached.get("courses") or [])
+                _log_progress(f"[ก้อน {chunk_num}/{n_chunks}] ข้าม (มีผลเก่า {n_cached} วิชา)")
+                chunks.append(cached)
+                continue
+            except Exception:
+                _log_progress(f"[ก้อน {chunk_num}/{n_chunks}] ไฟล์เก่าเสีย ทำใหม่")
+
         part = md_pages[ci * PAGES_PER_CHUNK:(ci + 1) * PAGES_PER_CHUNK]
-        print(f"    [ขั้น 2/2] จัด JSON ก้อนที่ {ci + 1}/{n_chunks} "
-              f"({len(part)} หน้า)")
+        _log_progress(f"[ก้อน {chunk_num}/{n_chunks}] เริ่ม ({len(part)} หน้า)...")
+        t0 = time.time()
+
         try:
             raw = ollama_chat(
                 MODEL_TEXT,
                 [{"role": "system", "content": SYSTEM_PROMPT},
                  {"role": "user", "content": EXTRACT_PROMPT.format(
                      document_text="\n\n".join(part))}],
-                fmt=COURSE_SCHEMA,
+                temperature=0.1
             )
             d = parse_json(raw)
-            print(f"      ได้ {len(d.get('courses') or [])} วิชา")
+            elapsed = round(time.time() - t0, 1)
+            n_courses = len(d.get("courses") or [])
+            _log_progress(f"[ก้อน {chunk_num}/{n_chunks}] ✓ สำเร็จ ({n_courses} วิชา, {elapsed} วิ)")
             chunks.append(d)
-        except Exception as e:
-            # ก้อนหนึ่งพัง ไม่ควรทำให้ทั้งงานพัง — ข้ามไปทำก้อนถัดไป
-            print(f"      ❌ ก้อนที่ {ci + 1} ล้มเหลว: {e}")
 
+            # --- เซฟลงไฟล์ทันที ---
+            if chunk_file:
+                chunk_file.write_text(
+                    json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            elapsed = round(time.time() - t0, 1)
+            _log_progress(f"[ก้อน {chunk_num}/{n_chunks}] ❌ พัง ({elapsed} วิ): {e}")
+
+    _log_progress(f"=== จบ: สำเร็จ {len(chunks)}/{n_chunks} ก้อน ===")
     return merge_chunks(chunks)
 
 
-def pipeline_text(pdf_path: str, page_spec: str | None) -> dict:
+def pipeline_text(pdf_path: str, page_spec: str | None, outdir: Path | None = None) -> dict:
     """
     ⭐ pipeline พิเศษของกลุ่ม B: ข้าม OCR ไปเลย
 
@@ -671,7 +722,7 @@ def pipeline_text(pdf_path: str, page_spec: str | None) -> dict:
         print("      วิชาในหน้าเหล่านั้นจะหายไป --> Recall จะต่ำกว่าความจริง")
         print("      ถ้าเล่มมีหน้าสแกนปน ให้ใช้ --pipeline vlm แทน")
 
-    return _text_to_json_chunked(pages_text)
+    return _text_to_json_chunked(pages_text, outdir)
 
 
 
@@ -955,7 +1006,7 @@ def run_pipeline(name: str, pages: list[bytes], outdir: Path,
             if not pdf_path:
                 print("  ⚠ pipeline 'text' ใช้ได้กับไฟล์ PDF เท่านั้น")
                 return None
-            data = pipeline_text(pdf_path, page_spec)
+            data = pipeline_text(pdf_path, page_spec, outdir)
         elif name == "vlm":
             data = pipeline_vlm(pages, outdir)
         else:

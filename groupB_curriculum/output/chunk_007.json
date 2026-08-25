@@ -1,0 +1,95 @@
+{
+  "courses": [
+    {
+      "code": "06026256",
+      "name_th": "การจัดการการปฏิบัติการ",
+      "name_en": "OPERATIONS MANAGEMENT",
+      "credits": "3(3-0-6)",
+      "year": 0,
+      "semester": 0,
+      "category": "หมวดวิชาเฉพาะ",
+      "type": "เลือก",
+      "prerequisite": "ไม่มี",
+      "flexible_year_semester": "3/1, 3/2, 4/1",
+      "note": null
+    },
+    {
+      "code": "06026257",
+      "name_th": "การบริหารเชิงกลยุทธ์และสมรรถะของธุรกิจ",
+      "name_en": "BUSINESS STRATEGIC AND PERFORMANCE\nMANAGEMENT",
+      "credits": "3(3-0-6)",
+      "year": 0,
+      "semester": 0,
+      "category": "หมวดวิชาเฉพาะ",
+      "type": "เลือก",
+      "prerequisite": "ไม่มี",
+      "flexible_year_semester": "3/1, 3/2, 4/1",
+      "note": null
+    },
+    {
+      "code": "06026258",
+      "name_th": "การวิเคราะห์เครือข่ายสังคม",
+      "name_en": "SOCIAL NETWORK ANALYSIS",
+      "credits": "3(3-0-6)",
+      "year": 0,
+      "semester": 0,
+      "category": "หมวดวิชาเฉพาะ",
+      "type": "เลือก",
+      "prerequisite": "ไม่มี",
+      "flexible_year_semester": "3/1, 3/2, 4/1",
+      "note": null
+    },
+    {
+      "code": "06026259",
+      "name_th": "สหกิจศึกษาทางวิทยาการข้อมูลและการวิเคราะห์เชิงธุรกิจ",
+      "name_en": "COOPERATIVE EDUCATION IN DATA\nSCIENCE AND BUSINESS ANALYTICS",
+      "credits": "6(0-35-0)",
+      "year": 0,
+      "semester": 0,
+      "category": "หมวดวิชาเฉพาะ",
+      "type": "เลือก",
+      "prerequisite": "ไม่มี",
+      "flexible_year_semester": "3/1, 3/2, 4/1",
+      "note": "เฉพาะโครงการเข้าร่วมสหกิจ"
+    },
+    {
+      "code": "06026260",
+      "name_th": "สหกิจศึกษาต่างประเทศทางวิทยาการข้อมูลและการวิเคราะห์เชิงธุรกิจ",
+      "name_en": "OVERSEA COOPERATIVE EDUCATION IN DATA\nSCIENCE AND BUSINESS ANALYTICS",
+      "credits": "6(0-35-0)",
+      "year": 0,
+      "semester": 0,
+      "category": "หมวดวิชาเฉพาะ",
+      "type": "เลือก",
+      "prerequisite": "ไม่มี",
+      "flexible_year_semester": "3/1, 3/2, 4/1",
+      "note": "เฉพาะโครงการเข้าร่วมสหกิจ"
+    },
+    {
+      "code": "หมายเหตุ: คอลัมน์ \"ตัวเลือกปี/เทอม (flexible)\" กรอกเฉพาะแถวที่ ปี=0 และ เทอม=0 เท่านั้น (เซลล์จะเปลี่ยนเป็นสีเหลืองอัตโนมัติ) — ใส่เป็น \"ปี/เทอม\" คั่นด้วยจุลภาค เช่น \"3/2, 4/1, 4/2\"",
+      "name_th": null,
+      "name_en": null,
+      "credits": null,
+      "year": null,
+      "semester": null,
+      "category": null,
+      "type": null,
+      "prerequisite": null,
+      "flexible_year_semester": null,
+      "note": null
+    },
+    {
+      "code": "06026999",
+      "name_th": "วิชาเลือกเสรีเพิ่มเติม",
+      "name_en": "ADDITIONAL FREE ELECTIVE",
+      "credits": "3(3-0-6)",
+      "year": "4",
+      "semester": "2",
+      "category": "หมวดวิชาเลือกเสรี",
+      "type": "เลือก",
+      "prerequisite": "ไม่มี",
+      "flexible_year_semester": null,
+      "note": null
+    }
+  ]
+}
