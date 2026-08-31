@@ -17,8 +17,8 @@ Lab7_groupB_curriculum/
     |-- lab7b_curriculum.py
     |-- gt/
     |   |-- DSBA_academic_plan_coop.json
-    |-- data/     (วางไฟล์ PDF ที่นี่ - ไม่ถูก commit)
-    |-- output/   (ผลลัพธ์จากการรัน - ไม่ถูก commit)
+    |-- data/ 
+    |-- output/ 
 ```
 
 ## การติดตั้ง
