@@ -1,0 +1,271 @@
+{
+  "$defs": {
+    "Course": {
+      "description": "รายวิชาหนึ่งวิชา ตามที่ปรากฏในหมวดคำอธิบายรายวิชา",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "name_th": {
+          "title": "Name Th",
+          "type": "string"
+        },
+        "name_en": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name En"
+        },
+        "credits": {
+          "maximum": 12,
+          "minimum": 0,
+          "title": "Credits",
+          "type": "integer"
+        },
+        "lecture_h": {
+          "anyOf": [
+            {
+              "maximum": 60,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lecture H"
+        },
+        "lab_h": {
+          "anyOf": [
+            {
+              "maximum": 60,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lab H"
+        },
+        "self_h": {
+          "anyOf": [
+            {
+              "maximum": 60,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Self H"
+        },
+        "description_th": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description Th"
+        }
+      },
+      "required": [
+        "code",
+        "name_th",
+        "credits"
+      ],
+      "title": "Course",
+      "type": "object"
+    },
+    "PlanItem": {
+      "description": "หนึ่งบรรทัดในแผนการศึกษา\n\nalt_group คือกลไกจัดการ \"วิชาเลือกอย่างใดอย่างหนึ่ง\"\nเล่มหลักสูตรเขียนว่า  06026259 หรือ 06026260\nเราแตกเป็นสองแถวที่มี alt_group เดียวกัน\nเวลานับหน่วยกิตจึงนับ alt_group ละครั้งเดียว ไม่นับซ้ำ\n\nนี่คือบทเรียนตรงจาก Lab 7B: กฎตรวจที่ไม่รู้จักกรณีนี้\nจะเตือนผิดทุกครั้งที่เจอวิชาเลือก จนนักศึกษาเลิกอ่านคำเตือน",
+      "properties": {
+        "year": {
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Year",
+          "type": "integer"
+        },
+        "semester": {
+          "maximum": 3,
+          "minimum": 1,
+          "title": "Semester",
+          "type": "integer"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "credits": {
+          "maximum": 12,
+          "minimum": 0,
+          "title": "Credits",
+          "type": "integer"
+        },
+        "alt_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt Group"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "year",
+        "semester",
+        "code",
+        "credits"
+      ],
+      "title": "PlanItem",
+      "type": "object"
+    },
+    "Prerequisite": {
+      "description": "ความสัมพันธ์วิชาบังคับก่อน / วิชาเรียนควบ",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "requires": {
+          "title": "Requires",
+          "type": "string"
+        },
+        "kind": {
+          "default": "pre",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "requires"
+      ],
+      "title": "Prerequisite",
+      "type": "object"
+    },
+    "Program": {
+      "description": "ข้อมูลหลักสูตรระดับบนสุด",
+      "properties": {
+        "program_id": {
+          "title": "Program Id",
+          "type": "string"
+        },
+        "name_th": {
+          "title": "Name Th",
+          "type": "string"
+        },
+        "name_en": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name En"
+        },
+        "degree": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Degree"
+        },
+        "total_credits": {
+          "maximum": 300,
+          "minimum": 30,
+          "title": "Total Credits",
+          "type": "integer"
+        },
+        "years": {
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Years",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "program_id",
+        "name_th",
+        "total_credits",
+        "years"
+      ],
+      "title": "Program",
+      "type": "object"
+    }
+  },
+  "description": "เอกสารทั้งเล่มหนึ่งฉบับ",
+  "properties": {
+    "program": {
+      "$ref": "#/$defs/Program"
+    },
+    "courses": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Course"
+      },
+      "title": "Courses",
+      "type": "array"
+    },
+    "plan": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PlanItem"
+      },
+      "title": "Plan",
+      "type": "array"
+    },
+    "prerequisites": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Prerequisite"
+      },
+      "title": "Prerequisites",
+      "type": "array"
+    }
+  },
+  "required": [
+    "program"
+  ],
+  "title": "Curriculum",
+  "type": "object"
+}

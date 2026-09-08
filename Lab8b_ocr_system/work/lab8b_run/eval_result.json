@@ -1,0 +1,482 @@
+[
+  {
+    "question": "ชั้นปีใดมีจำนวนหน่วยกิตรวมสูงที่สุดตลอดปีการศึกษา?",
+    "expect": {
+      "type": "value",
+      "value": "ปี 1"
+    },
+    "answer": "ชั้นปี 1 มีจำนวนหน่วยกิตรวมสูงที่สุดตลอดปีการศึกษา",
+    "sql": "SELECT year, SUM(credits) AS total_credits FROM v_semester_credits GROUP BY year ORDER BY total_credits DESC LIMIT 1",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT year, SUM(credits) AS total_credits FROM v_semester_credits GROUP BY year ORDER BY total_credits DESC LIMIT 1\"}",
+    "answer_model_output": "{\"answer\": \"ชั้นปี 1 มีจำนวนหน่วยกิตรวมสูงที่สุดตลอดปีการศึกษา\"}",
+    "correct": false,
+    "why": "ไม่พบค่า ปี 1 (ได้ ['1', '42'])",
+    "seconds": 35.0
+  },
+  {
+    "question": "หน่วยกิตรวมของปี 1 ทั้งสองเทอมมีกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "42"
+    },
+    "answer": "42",
+    "sql": "SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=1 LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=1\"}",
+    "answer_model_output": "{\"answer\": \"42\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 27.1
+  },
+  {
+    "question": "หน่วยกิตรวมของปี 2 ทั้งสองเทอมมีกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "36"
+    },
+    "answer": "36",
+    "sql": "SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=2 LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=2\"}",
+    "answer_model_output": "{\"answer\": \"36\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 24.3
+  },
+  {
+    "question": "หน่วยกิตรวมของปี 3 ทั้งสองเทอมมีกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "21"
+    },
+    "answer": "21",
+    "sql": "SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=3 AND semester IN (1, 2) LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=3 AND semester IN (1, 2)\"}",
+    "answer_model_output": "{\"answer\": \"21\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 25.9
+  },
+  {
+    "question": "ภาคการศึกษาใดที่มีจำนวนหน่วยกิตน้อยที่สุด?",
+    "expect": {
+      "type": "value",
+      "value": "ปี 4 เทอม 1"
+    },
+    "answer": "ภาคการศึกษา 4/1",
+    "sql": "SELECT year, semester, credits FROM v_semester_credits ORDER BY credits ASC LIMIT 1",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT year, semester, credits FROM v_semester_credits ORDER BY credits ASC LIMIT 1\"}",
+    "answer_model_output": "{\"answer\": \"ภาคการศึกษา 4/1\"}",
+    "correct": false,
+    "why": "ไม่พบค่า ปี 4 เทอม 1 (ได้ ['1', '3', '4'])",
+    "seconds": 29.7
+  },
+  {
+    "question": "ภาคการศึกษาใดที่มีจำนวนรายวิชาน้อยที่สุด?",
+    "expect": {
+      "type": "value",
+      "value": "ปี 4 เทอม 1"
+    },
+    "answer": "ภาคการศึกษา 4/1",
+    "sql": "SELECT year, semester FROM v_semester_credits ORDER BY n_courses LIMIT 1",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT year, semester FROM v_semester_credits ORDER BY n_courses LIMIT 1\"}",
+    "answer_model_output": "{\"answer\": \"ภาคการศึกษา 4/1\"}",
+    "correct": false,
+    "why": "ไม่พบค่า ปี 4 เทอม 1 (ได้ ['1', '4'])",
+    "seconds": 27.2
+  },
+  {
+    "question": "ปี 2 ทั้งปีมีจำนวนรายวิชารวมกันกี่รายวิชา?",
+    "expect": {
+      "type": "value",
+      "value": "12"
+    },
+    "answer": "12",
+    "sql": "SELECT COUNT(DISTINCT code) FROM v_plan WHERE year=2 LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(DISTINCT code) FROM v_plan WHERE year=2\"}",
+    "answer_model_output": "{\"answer\": \"12\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 27.3
+  },
+  {
+    "question": "ปี 3 ทั้งปีมีจำนวนรายวิชารวมกันกี่รายวิชา?",
+    "expect": {
+      "type": "value",
+      "value": "7"
+    },
+    "answer": "7 รายวิชา",
+    "sql": "SELECT COUNT(DISTINCT code) FROM v_plan WHERE year=3 LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(DISTINCT code) FROM v_plan WHERE year=3\"}",
+    "answer_model_output": "{\"answer\": \"7 รายวิชา\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 27.6
+  },
+  {
+    "question": "ปี 4 ทั้งปีมีจำนวนรายวิชารวมกันกี่รายวิชา?",
+    "expect": {
+      "type": "value",
+      "value": "3"
+    },
+    "answer": "3 รายวิชา",
+    "sql": "SELECT COUNT(DISTINCT code) FROM v_plan WHERE year=4 LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(DISTINCT code) FROM v_plan WHERE year=4\"}",
+    "answer_model_output": "{\"answer\": \"3 รายวิชา\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 27.4
+  },
+  {
+    "question": "เมื่อเรียนจบปี 2 จะสะสมหน่วยกิตตามแผนได้ทั้งหมดกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "78"
+    },
+    "answer": "จะสะสมหน่วยกิตตามแผนได้ทั้งหมด 78 หน่วยกิต",
+    "sql": "SELECT SUM(credits) FROM v_plan WHERE year <= 2 LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT SUM(credits) FROM v_plan WHERE year <= 2\"}",
+    "answer_model_output": "{\"answer\": \"จะสะสมหน่วยกิตตามแผนได้ทั้งหมด 78 หน่วยกิต\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 30.3
+  },
+  {
+    "question": "เมื่อเรียนจบปี 3 จะสะสมหน่วยกิตตามแผนได้ทั้งหมดกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "99"
+    },
+    "answer": "ไม่สามารถตอบคำถามนี้ได้ กรุณาตรวจสอบเอง",
+    "sql": "SELECT SUM(p.credits) FROM v_plan p JOIN program prog ON p.program_id = prog.program_id WHERE p.year < 3 LIMIT 200",
+    "n_rows": 0,
+    "error": "OperationalError: no such column: p.program_id",
+    "sql_model_output": "{\"sql\": \"SELECT SUM(p.credits) FROM v_plan p JOIN program prog ON p.program_id = prog.program_id WHERE p.year < 3\"}",
+    "answer_model_output": null,
+    "correct": false,
+    "why": "ไม่พบค่า 99 (ได้ [])",
+    "seconds": 25.5
+  },
+  {
+    "question": "จำนวนหน่วยกิตรวมทั้งหลักสูตร ต่างจากหน่วยกิตรวมในตารางแผนการศึกษากี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "27"
+    },
+    "answer": "ไม่สามารถตอบคำถามนี้ได้ กรุณาตรวจสอบเอง",
+    "sql": "SELECT total_credits - SUM(credits) AS difference FROM program p JOIN v_semester_credits v ON p.program_id = v.id LIMIT 200",
+    "n_rows": 0,
+    "error": "OperationalError: no such column: v.id",
+    "sql_model_output": "{\"sql\": \"SELECT total_credits - SUM(credits) AS difference FROM program p JOIN v_semester_credits v ON p.program_id = v.id\"}",
+    "answer_model_output": null,
+    "correct": false,
+    "why": "ไม่พบค่า 27 (ได้ [])",
+    "seconds": 25.4
+  },
+  {
+    "question": "จำนวนคำอธิบายรายวิชาทั้งหมด ต่างจากจำนวนรายวิชาในแผนการศึกษากี่รายการ?",
+    "expect": {
+      "type": "value",
+      "value": "43"
+    },
+    "answer": "จำนวนคำอธิบายรายวิชาทั้งหมดต่างจากจำนวนรายวิชาในแผนการศึกษา 80 รายการ",
+    "sql": "SELECT COUNT(DISTINCT description_th) - COUNT(DISTINCT code) AS difference FROM course LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(DISTINCT description_th) - COUNT(DISTINCT code) AS difference FROM course\"}",
+    "answer_model_output": "{\"answer\": \"จำนวนคำอธิบายรายวิชาทั้งหมดต่างจากจำนวนรายวิชาในแผนการศึกษา 80 รายการ\"}",
+    "correct": false,
+    "why": "ไม่พบค่า 43 (ได้ ['-80'])",
+    "seconds": 34.2
+  },
+  {
+    "question": "วิชาชื่อภาษาไทย 'การพัฒนาระบบอัจฉริยะ' มีรหัสวิชาอะไร?",
+    "expect": {
+      "type": "value",
+      "value": "06026240"
+    },
+    "answer": "รหัสวิชาการพัฒนาระบบอัจฉริยะคือ 06026240",
+    "sql": "SELECT code FROM course WHERE name_th = 'การพัฒนาระบบอัจฉริยะ' LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT code FROM course WHERE name_th = 'การพัฒนาระบบอัจฉริยะ'\"}",
+    "answer_model_output": "{\"answer\": \"รหัสวิชาการพัฒนาระบบอัจฉริยะคือ 06026240\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 35.3
+  },
+  {
+    "question": "วิชาชื่อภาษาอังกฤษ 'INTELLIGENT SYSTEM DEVELOPMENT' มีรหัสวิชาอะไร?",
+    "expect": {
+      "type": "value",
+      "value": "06026240"
+    },
+    "answer": "รหัสวิชา INTELLIGENT SYSTEM DEVELOPMENT คือ 06026240",
+    "sql": "SELECT code FROM course WHERE name_en = 'INTELLIGENT SYSTEM DEVELOPMENT' LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT code FROM course WHERE name_en = 'INTELLIGENT SYSTEM DEVELOPMENT'\"}",
+    "answer_model_output": "{\"answer\": \"รหัสวิชา INTELLIGENT SYSTEM DEVELOPMENT คือ 06026240\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 32.2
+  },
+  {
+    "question": "รหัสวิชา 06026240 จัดอยู่ในภาคเรียนใดของชั้นปีใด?",
+    "expect": {
+      "type": "value",
+      "value": "ปี 2 เทอม 2"
+    },
+    "answer": "ไม่พบข้อมูลนี้ในเล่มหลักสูตร",
+    "sql": "SELECT p.year, p.semester FROM plan_item p JOIN course c ON c.code = p.code WHERE c.code = '06026240' LIMIT 200",
+    "n_rows": 0,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT p.year, p.semester FROM plan_item p JOIN course c ON c.code = p.code WHERE c.code = '06026240'\"}",
+    "answer_model_output": null,
+    "correct": false,
+    "why": "ไม่พบค่า ปี 2 เทอม 2 (ได้ [])",
+    "seconds": 13.6
+  },
+  {
+    "question": "วิชาการพัฒนาระบบอัจฉริยะมีกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "3"
+    },
+    "answer": "วิชาการพัฒนาระบบอัจฉริยะมี 3 หน่วยกิต",
+    "sql": "SELECT credits FROM course WHERE name_th LIKE '%การพัฒนาระบบอัจฉริยะ%' LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT credits FROM course WHERE name_th LIKE '%การพัฒนาระบบอัจฉริยะ%'\"}",
+    "answer_model_output": "{\"answer\": \"วิชาการพัฒนาระบบอัจฉริยะมี 3 หน่วยกิต\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 53.7
+  },
+  {
+    "question": "ปี 1 เทอม 1 กับ ปี 2 เทอม 1 มีจำนวนรายวิชารวมกันกี่วิชา?",
+    "expect": {
+      "type": "value",
+      "value": "13"
+    },
+    "answer": "รวมกัน 13 วิชา",
+    "sql": "SELECT COUNT(DISTINCT code) AS total_courses FROM v_plan WHERE (year=1 AND semester=1) OR (year=2 AND semester=1) LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(DISTINCT code) AS total_courses FROM v_plan WHERE (year=1 AND semester=1) OR (year=2 AND semester=1)\"}",
+    "answer_model_output": "{\"answer\": \"รวมกัน 13 วิชา\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 33.0
+  },
+  {
+    "question": "ปี 3 เทอม 1 และ ปี 3 เทอม 2 มีหน่วยกิตรวมกันเท่าไหร่?",
+    "expect": {
+      "type": "value",
+      "value": "21"
+    },
+    "answer": "21",
+    "sql": "SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=3 AND (semester=1 OR semester=2) LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT SUM(credits) AS total_credits FROM v_semester_credits WHERE year=3 AND (semester=1 OR semester=2)\"}",
+    "answer_model_output": "{\"answer\": \"21\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 28.5
+  },
+  {
+    "question": "ปี 2 เทอม 1 และ ปี 2 เทอม 2 มีหน่วยกิตต่างกันกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "6"
+    },
+    "answer": "มีหน่วยกิตต่างกัน 6 หน่วยกิต",
+    "sql": "SELECT (SELECT credits FROM v_semester_credits WHERE year=2 AND semester=1) - (SELECT credits FROM v_semester_credits WHERE year=2 AND semester=2) AS difference LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT (SELECT credits FROM v_semester_credits WHERE year=2 AND semester=1) - (SELECT credits FROM v_semester_credits WHERE year=2 AND semester=2) AS difference\"}",
+    "answer_model_output": "{\"answer\": \"มีหน่วยกิตต่างกัน 6 หน่วยกิต\"}",
+    "correct": false,
+    "why": "ไม่พบค่า 6 (ได้ ['-6'])",
+    "seconds": 33.0
+  },
+  {
+    "question": "ปี 3 เทอม 1 และ ปี 3 เทอม 2 มีจำนวนรายวิชาต่างกันกี่วิชา?",
+    "expect": {
+      "type": "value",
+      "value": "1"
+    },
+    "answer": "มีจำนวนรายวิชาต่างกัน 1 วิชา",
+    "sql": "SELECT (SELECT COUNT(*) FROM v_plan WHERE year=3 AND semester=1) - (SELECT COUNT(*) FROM v_plan WHERE year=3 AND semester=2) LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT (SELECT COUNT(*) FROM v_plan WHERE year=3 AND semester=1) - (SELECT COUNT(*) FROM v_plan WHERE year=3 AND semester=2)\"}",
+    "answer_model_output": "{\"answer\": \"มีจำนวนรายวิชาต่างกัน 1 วิชา\"}",
+    "correct": false,
+    "why": "ไม่พบค่า 1 (ได้ ['-1'])",
+    "seconds": 32.6
+  },
+  {
+    "question": "ปี 4 เทอม 1 และ ปี 4 เทอม 2 มีจำนวนรายวิชาต่างกันกี่วิชา?",
+    "expect": {
+      "type": "value",
+      "value": "1"
+    },
+    "answer": "มีจำนวนรายวิชาต่างกัน 1 วิชา",
+    "sql": "SELECT (SELECT COUNT(*) FROM v_plan WHERE year=4 AND semester=1) - (SELECT COUNT(*) FROM v_plan WHERE year=4 AND semester=2) AS difference LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT (SELECT COUNT(*) FROM v_plan WHERE year=4 AND semester=1) - (SELECT COUNT(*) FROM v_plan WHERE year=4 AND semester=2) AS difference\"}",
+    "answer_model_output": "{\"answer\": \"มีจำนวนรายวิชาต่างกัน 1 วิชา\"}",
+    "correct": false,
+    "why": "ไม่พบค่า 1 (ได้ ['-1'])",
+    "seconds": 30.8
+  },
+  {
+    "question": "ภาคการศึกษาใดบ้างที่มีจำนวนหน่วยกิตเท่ากันที่ 21 หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "ปี 1 เทอม 1, ปี 1 เทอม 2, ปี 2 เทอม 2"
+    },
+    "answer": "ภาคการศึกษา 2",
+    "sql": "SELECT semester FROM v_semester_credits WHERE credits = 21 LIMIT 200",
+    "n_rows": 3,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT semester FROM v_semester_credits WHERE credits = 21\"}",
+    "answer_model_output": "{\"answer\": \"ภาคการศึกษา 2\"}",
+    "correct": false,
+    "why": "ไม่พบค่า ปี 1 เทอม 1, ปี 1 เทอม 2, ปี 2 เทอม 2 (ได้ ['1', '2'])",
+    "seconds": 28.5
+  },
+  {
+    "question": "มีวิชาที่ต้องเรียนก่อน (Prerequisite) ในหลักสูตรนี้ทั้งหมดกี่คู่?",
+    "expect": {
+      "type": "value",
+      "value": "5"
+    },
+    "answer": "มีวิชาที่ต้องเรียนก่อนในหลักสูตรนี้ทั้งหมด 5 คู่",
+    "sql": "SELECT COUNT(*) FROM prerequisite LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(*) FROM prerequisite\"}",
+    "answer_model_output": "{\"answer\": \"มีวิชาที่ต้องเรียนก่อนในหลักสูตรนี้ทั้งหมด 5 คู่\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 30.4
+  },
+  {
+    "question": "จำนวนรายวิชาทั้งหมดในแผนการศึกษาคิดเป็นกี่รายการ?",
+    "expect": {
+      "type": "value",
+      "value": "37"
+    },
+    "answer": "37",
+    "sql": "SELECT COUNT(*) FROM v_plan LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(*) FROM v_plan\"}",
+    "answer_model_output": "{\"answer\": \"37\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 24.9
+  },
+  {
+    "question": "คำอธิบายรายวิชาในหลักสูตรนี้มีรวมทั้งหมดกี่วิชา?",
+    "expect": {
+      "type": "value",
+      "value": "80"
+    },
+    "answer": "มีรวมทั้งหมด 80 วิชา",
+    "sql": "SELECT COUNT(*) FROM course LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(*) FROM course\"}",
+    "answer_model_output": "{\"answer\": \"มีรวมทั้งหมด 80 วิชา\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 27.5
+  },
+  {
+    "question": "หน่วยกิตรวมของแผนการศึกษาทั้งหมดมีกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "108"
+    },
+    "answer": "114",
+    "sql": "SELECT SUM(credits) AS total_credits FROM v_plan LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT SUM(credits) AS total_credits FROM v_plan\"}",
+    "answer_model_output": "{\"answer\": \"114\"}",
+    "correct": false,
+    "why": "ไม่พบค่า 108 (ได้ ['114'])",
+    "seconds": 27.1
+  },
+  {
+    "question": "หน่วยกิตรวมตลอดหลักสูตรตามโครงสร้างมีกี่หน่วยกิต?",
+    "expect": {
+      "type": "value",
+      "value": "135"
+    },
+    "answer": "114",
+    "sql": "SELECT SUM(credits) AS total_credits FROM v_plan LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT SUM(credits) AS total_credits FROM v_plan\"}",
+    "answer_model_output": "{\"answer\": \"114\"}",
+    "correct": false,
+    "why": "ไม่พบค่า 135 (ได้ ['114'])",
+    "seconds": 26.9
+  },
+  {
+    "question": "รหัสวิชา '06026240' เป็นรหัสวิชาขนาดกี่หลัก?",
+    "expect": {
+      "type": "value",
+      "value": "8"
+    },
+    "answer": "รหัสวิชาขนาด 8 หลัก",
+    "sql": "SELECT LENGTH(code) FROM course WHERE code = '06026240' LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT LENGTH(code) FROM course WHERE code = '06026240'\"}",
+    "answer_model_output": "{\"answer\": \"รหัสวิชาขนาด 8 หลัก\"}",
+    "correct": true,
+    "why": "ตรง",
+    "seconds": 31.4
+  },
+  {
+    "question": "แผนการศึกษานี้ใช้เวลาเรียนทั้งหมดกี่ภาคการศึกษา (ไม่รวมภาคฤดูร้อน)?",
+    "expect": {
+      "type": "value",
+      "value": "8"
+    },
+    "answer": "37",
+    "sql": "SELECT COUNT(*) FROM plan_item LIMIT 200",
+    "n_rows": 1,
+    "error": null,
+    "sql_model_output": "{\"sql\": \"SELECT COUNT(*) FROM plan_item\"}",
+    "answer_model_output": "{\"answer\": \"37\"}",
+    "correct": false,
+    "why": "ไม่พบค่า 8 (ได้ ['37'])",
+    "seconds": 1492.8
+  }
+]
