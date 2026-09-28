@@ -127,7 +127,7 @@ body {
 }
 
 
-/* ── Answer content (rendered from Markdown by main.js) ─── */
+/* ── Answer content (rendered from Markdown by app.js) ─── */
 
 .prose-answer h3,
 .prose-answer h4,
@@ -190,7 +190,7 @@ body {
 /* ── Answer callout box + auto-column layout ───────────────
    Wraps everything after the answer's first heading. When the
    content has multiple sub-heading + list pairs (e.g. "เทอม 1"
-   / "เทอม 2"), main.js groups them into .answer-columns so they
+   / "เทอม 2"), app.js groups them into .answer-columns so they
    sit side-by-side on wider screens and stack on mobile.        */
 
 .answer-callout {
@@ -264,7 +264,7 @@ body {
 
 
 /* !important so this always wins even when an element also
-   carries a display utility (e.g. "hidden flex") — main.js
+   carries a display utility (e.g. "hidden flex") — app.js
    toggles the two together to show/hide flex containers. */
 
 .hidden {

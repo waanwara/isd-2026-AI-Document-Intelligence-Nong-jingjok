@@ -387,7 +387,7 @@ katrag serve
 | **2. README** | [`README.md`](README.md) | เอกสารหลักระบุ Wireframe, API Contract และคำอธิบายการเชื่อมต่อ 4 สถานะ | ✅ ครบถ้วน |
 | **3. index.html** | [`web/index.html`](web/index.html) | ไฟล์ HTML หลักของหน้าเว็บ เชื่อมต่อ Tailwind CSS, Fonts และ `app.js` | ✅ ครบถ้วน |
 | **4. style.css** | [`web/style.css`](web/style.css) | ไฟล์สไตล์ลิ่ง CSS และ Custom Glassmorphism Theme | ✅ ครบถ้วน |
-| **5. app.js** | [`web/app.js`](web/app.js) (พร้อม [`web/main.js`](web/main.js)) | ไฟล์สคริปต์ Frontend จัดการ `fetch()`, 4 สถานะ และ DOM Manipulation | ✅ ครบถ้วน |
+| **5. app.js** | [`web/app.js`](web/app.js) | ไฟล์สคริปต์ Frontend จัดการ `fetch()`, 4 สถานะ และ DOM Manipulation | ✅ ครบถ้วน |
 | **6. .example.env** | [`.example.env`](.example.env) (และ [`.env.example`](.env.example)) | ไฟล์เทมเพลตตัวแปรสภาพแวดล้อม พร้อมคำอธิบายการใช้งาน | ✅ ครบถ้วน |
 
 ---
