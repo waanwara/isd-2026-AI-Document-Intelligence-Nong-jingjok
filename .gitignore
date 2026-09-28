@@ -1,15 +1,34 @@
 # ── Python ──
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+dist/
+build/
 .pytest_cache/
 .hypothesis/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 .venv/
 venv/
+ENV/
 
-# ── IDE ──
+# ── IDE & Editors ──
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# ── Operating System ──
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+._*
 
 # ── Kiro spec เอกสาร (เก็บในเครื่อง ไม่ขึ้น repo) ──
 .kiro/
@@ -17,8 +36,12 @@ venv/
 # ── เอกสารสรุปสำหรับส่งอาจารย์ตรง ๆ (เก็บในเครื่อง ไม่ขึ้น repo) ──
 docs/evaluation_summary_for_instructor.md
 
-# ── Secrets ──
+# ── Secrets & Environment ──
 .env
+.env.local
+.env.*.local
+!.env.example
+!.example.env
 
 # ── Artifacts (สร้างขึ้นใหม่ได้จาก ingest/index) ──
 artifacts/*.sqlite3
@@ -36,7 +59,9 @@ Information_Technology_Course.zip
 # ── Model weights (ดาวน์โหลดเองตาม README) ──
 models/
 
-# ── Temp/probe scripts ──
+# ── Temp & Log Files ──
+*.log
+*.tmp
 _probe_*
 _diag_*
 _migrate_*
