@@ -34,8 +34,14 @@ from katrag.query.completeness import postprocess_answer
 from katrag.query.retriever import search as lexical_search
 from katrag.query.semantic_retriever import hybrid_search
 from katrag.query.structured_query import (
+    detect_course_code,
     detect_cross_version_intent,
+    detect_cross_version_overview_intent,
+    detect_document_relation_intent,
+    detect_elective_credits_intent,
+    detect_graduation_audit_intent,
     detect_person_intent,
+    detect_plan_branching_intent,
     detect_plan_summary_intent,
     detect_prerequisite_intent,
     detect_program,
@@ -43,8 +49,14 @@ from katrag.query.structured_query import (
     detect_rule_intent,
     detect_year,
     source_pages_for_codes,
+    try_course_code,
     try_cross_version_diff,
+    try_cross_version_overview,
+    try_document_relation,
+    try_elective_credits,
+    try_graduation_audit,
     try_person_answer,
+    try_plan_branching,
     try_plan_summary,
     try_prerequisite,
     try_program_name,
@@ -75,6 +87,13 @@ MIN_EVIDENCE = 3
 DIRECT_INTENTS = frozenset({
     "year_sem", "all_courses", "plan_summary", "cross_version",
     "topic_courses", "topic_semantic", "prerequisite", "rule", "person",
+    "course_code", "doc_relation", "plan_branching", "grad_audit",
+    "cross_version_overview", "elective_credits",
+})
+
+ALWAYS_DIRECT_INTENTS = frozenset({
+    "course_code", "doc_relation", "plan_branching", "grad_audit",
+    "cross_version_overview", "elective_credits", "prerequisite",
 })
 
 #: คำที่บ่งชี้ว่าเป็นคำถามเชิงวิเคราะห์ (ต้องให้ LLM ให้เหตุผล ไม่ใช่ list ข้อมูล)
@@ -290,30 +309,60 @@ def run_structured(
 
 def _dispatch_intent(conn: sqlite3.Connection, question: str):
     """เลือก structured handler ตาม intent ของคำถาม."""
-    # เกณฑ์สำเร็จการศึกษา/เกียรตินิยม — คำเฉพาะเจาะจง เช็กก่อน intent อื่นได้
-    # เพราะไม่มีคำถามรายวิชาข้อไหนใช้คำ "สำเร็จการศึกษา/เกียรตินิยม" ปนอยู่
+    # 0. รหัสวิชาตรง ๆ (Code Lookup เช่น 06066303)
+    if detect_course_code(question):
+        sr = try_course_code(conn, question)
+        if sr.matched:
+            return sr
+
+    # 1. ตรวจสอบไฟล์เอกสารซ้ำ/เล่มเดียวกัน (Document Relation / Deduplication)
+    if detect_document_relation_intent(question):
+        sr = try_document_relation(conn, question)
+        if sr.matched:
+            return sr
+
+    # 2. เปรียบเทียบแผนสหกิจศึกษา vs แผนปกติ (Academic Plan Branching)
+    if detect_plan_branching_intent(question):
+        sr = try_plan_branching(conn, question)
+        if sr.matched:
+            return sr
+
+    # 3. ตรวจสอบเงื่อนไขจบ/เกณฑ์สำเร็จการศึกษา (Graduation Audit)
+    if detect_graduation_audit_intent(question):
+        sr = try_graduation_audit(conn, question)
+        if sr.matched:
+            return sr
+
+    # 4. เปรียบเทียบภาพรวมหลักสูตรเก่า-ใหม่ (IT 2560 vs IT 2565 โครงสร้าง+แขนง)
+    if detect_cross_version_overview_intent(question):
+        sr = try_cross_version_overview(conn, question)
+        if sr.matched:
+            return sr
+
+    # 5. จำนวนหน่วยกิตวิชาเฉพาะเลือก / วิชาชีพเฉพาะด้าน (Elective Credits)
+    if detect_elective_credits_intent(question):
+        sr = try_elective_credits(conn, question)
+        if sr.matched:
+            return sr
+
+    # 6. เกณฑ์สำเร็จการศึกษา/เกียรตินิยม — คำเฉพาะเจาะจง เช็กก่อน intent อื่นได้
     if detect_rule_intent(question) is not None:
         sr = try_rule_answer(conn, question)
         if sr.matched:
             return sr
-        # ไม่มี rule ให้ตอบ (เช่นหลักสูตรที่ไม่มีข้อมูลในตาราง) → ปล่อยลง
-        # retrieval ปกติ ไม่ fallback เข้า try_structured_answer เพราะคำถามนี้
-        # ไม่ใช่คำถามรายวิชา จะยิ่งตอบผิดประเภท
         return sr
-    # คำถามอาจารย์ผู้รับผิดชอบ/ประจำ/ผู้สอน — เช็กก่อน intent อื่นได้เพราะ
-    # ไม่มีคำถามรายวิชาข้อไหนใช้คำ "อาจารย์ผู้รับผิดชอบ/ประจำหลักสูตร" ปนอยู่
+    # คำถามอาจารย์ผู้รับผิดชอบ/ประจำ/ผู้สอน
     if detect_person_intent(question):
         sr = try_person_answer(conn, question)
-        # ไม่มีข้อมูล person เลย (เช่นหลักสูตรที่ไม่อยู่ใน _PERSON_VERSIONS)
-        # → ปล่อยลง retrieval ปกติ ไม่ fallback เข้า try_structured_answer
-        # เพราะคำถามนี้ไม่ใช่คำถามรายวิชา
         return sr
     if detect_program_name_intent(question):
         sr = try_program_name(conn, question)
         return sr if sr.matched else try_structured_answer(conn, question)
     if detect_prerequisite_intent(question):
         sr = try_prerequisite(conn, question)
-        return sr if sr.matched else try_structured_answer(conn, question)
+        if sr.matched:
+            return sr
+        return try_structured_answer(conn, question)
     if detect_cross_version_intent(question):
         return try_cross_version_diff(conn, question)
     if detect_plan_summary_intent(question):
@@ -469,12 +518,19 @@ def is_reasoning_question(question: str) -> bool:
 
 
 def _reasoning_prompt(context: str, question: str) -> str:
+    is_yes_no = any(w in question for w in ["ได้ไหม", "ได้มั้ย", "ได้หรือไม่", "ได้รึเปล่า", "ลงได้ไหม", "เรียนได้ไหม"])
+    format_instruction = (
+        "1. บรรทัดแรก: ขึ้นต้นด้วย **ได้** หรือ **ไม่ได้** เท่านั้น (ไม่ต้องมีคำอื่นนำหน้า)\n"
+        "2. จากนั้นอธิบายเหตุผลสั้น ๆ 2-4 ประโยค ในย่อหน้าเดียว\n"
+    ) if is_yes_no else (
+        "1. บรรทัดแรก: สรุปคำตอบตรงประเด็นทันที\n"
+        "2. จากนั้นอธิบายเหตุผลและการวิเคราะห์ตามหลักฐานอย่างชัดเจน 2-4 ประโยค\n"
+    )
     return (
         "คุณเป็นที่ปรึกษาหลักสูตรของ KMITL คณะเทคโนโลยีสารสนเทศ "
         "ตอบเป็นภาษาไทย ตรงประเด็น ไม่วกวน\n\n"
         "รูปแบบคำตอบ (ทำตามนี้เคร่งครัด):\n"
-        "1. บรรทัดแรก: ขึ้นต้นด้วย **ได้** หรือ **ไม่ได้** เท่านั้น (ไม่ต้องมีคำอื่นนำหน้า)\n"
-        "2. จากนั้นอธิบายเหตุผลสั้น ๆ 2-4 ประโยค ในย่อหน้าเดียว\n"
+        f"{format_instruction}"
         "3. อ้างข้อมูลจากหลักฐาน: วิชาบังคับก่อน, ภาค/ปีที่เปิดสอน, ประเภทวิชา (บังคับ/เลือก)\n\n"
         "ข้อห้าม:\n"
         "- อย่าตอบขัดแย้งกันเอง (ถ้าบอก 'ได้' ห้ามมีประโยคที่สื่อว่า 'ไม่ได้' ตามมา)\n"
@@ -516,7 +572,10 @@ def compose_answer(
     reasoning = is_reasoning_question(question)
 
     # คำถามตายตัวที่ structured ตอบครบแล้ว → คืนตรง ๆ กันวิชาตกหล่น
-    if structured.matched and structured.intent in DIRECT_INTENTS and not reasoning:
+    if structured.matched and (
+        structured.intent in ALWAYS_DIRECT_INTENTS
+        or (structured.intent in DIRECT_INTENTS and not reasoning)
+    ):
         return structured.context
 
     if llm is None:

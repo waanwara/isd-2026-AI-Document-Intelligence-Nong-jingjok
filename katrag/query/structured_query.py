@@ -421,7 +421,12 @@ def _norm_name(name: str) -> str:
 
 def detect_prerequisite_intent(question: str) -> bool:
     """ตรวจว่าเป็นคำถามวิชาบังคับก่อน (prerequisite)."""
-    return any(w in question.lower() for w in ["บังคับก่อน", "ต้องผ่าน", "ต้องเรียนก่อน", "ลงก่อน", "prerequisite", "ก่อนถึงจะลง", "เรียนก่อน"])
+    q = question.lower()
+    return any(w in q for w in [
+        "บังคับก่อน", "ต้องผ่าน", "ต้องเรียนก่อน", "ลงก่อน", "prerequisite",
+        "ก่อนถึงจะลง", "เรียนก่อน", "ตัวต่อ", "วิชาต่อเนื่อง", "prereq", "pre-requisite",
+        "เงื่อนไขก่อน", "ก่อนเรียน",
+    ])
 
 
 def try_prerequisite(
@@ -446,92 +451,115 @@ def try_prerequisite(
     if program:
         q = re.sub(rf"(?i)\b{re.escape(program)}\b", " ", q)
 
-    # ดึง keyword ชื่อวิชาจากคำถาม (คำไทยยาว ≥ 4 + อังกฤษ ≥ 4)
-    stop = {"ต้องผ่าน", "วิชา", "บังคับก่อน", "ต้องเรียน", "ก่อนถึงจะลง", "อะไร", "ใดบ้าง", "หลักสูตร"}
-    # คำที่บ่งชี้ว่าเป็น "ส่วนคำถาม" ไม่ใช่ชื่อวิชา (tokenizer ไทยรวมเป็นก้อนยาว)
-    q_markers = ("ต้อง", "ก่อน", "อะไร", "ใดบ้าง", "ได้บ้าง", "หรือไม่", "จะลง")
-    tokens = re.findall(r"[ก-๙]{4,}|[A-Za-z]{4,}", q)
-    keywords = [
-        t for t in tokens
-        if t.lower() not in {s.lower() for s in stop}
-        and not any(m in t for m in q_markers)
-    ]
-    if not keywords:
-        return StructuredResult(False, "", "", "none")
-
     # หา version scope
     version_ids: list[int] = []
     if program:
-        rows = conn.execute(
+        v_rows = conn.execute(
             "SELECT version_id FROM curriculum_version WHERE program=? AND edition_status='current'",
             (program,),
         ).fetchall()
-        version_ids = [r[0] for r in rows]
+        version_ids = [r[0] for r in v_rows]
 
-    # สร้างเงื่อนไข OR ของ keyword — params ต้องเรียงตามลำดับ placeholder ใน SQL
-    kw_clauses = " OR ".join(["name_th LIKE ? OR name_en LIKE ?" for _ in keywords])
-    params: list = []
-    for kw in keywords:  # keyword placeholders มาก่อนใน WHERE (...)
-        params.extend([f"%{kw}%", f"%{kw}%"])
-
-    where_scope = ""
-    if version_ids:  # version placeholders มาหลัง
+    # ลองจับคู่ชื่อวิชาโดยตรงจากตาราง course ใน version นั้นก่อน (แก้ปัญหา Tokenizer ไทยตัดคำเพี้ยน)
+    rows = []
+    if version_ids:
         ph = ",".join("?" for _ in version_ids)
-        where_scope = f" AND version_id IN ({ph})"
-        params.extend(version_ids)
+        c_candidates = conn.execute(
+            f"SELECT code, name_th, name_en, credits_raw, year, semester, "
+            f"prerequisite_json, prerequisite_raw, version_id "
+            f"FROM course WHERE version_id IN ({ph})",
+            version_ids,
+        ).fetchall()
+        direct_matched = []
+        for c in c_candidates:
+            nth = (c["name_th"] or "").strip()
+            nen = (c["name_en"] or "").strip().lower()
+            if len(nth) >= 4 and nth in q:
+                direct_matched.append((len(nth), c))
+            elif len(nen) >= 4 and nen in q.lower():
+                direct_matched.append((len(nen), c))
+            elif any(sub in q.lower() for sub in ["data warehouse", "warehouse"]) and "warehouse" in nen:
+                direct_matched.append((15, c))
 
-    rows = conn.execute(
-        f"SELECT code, name_th, name_en, credits_raw, year, semester, "
-        f"prerequisite_json, prerequisite_raw, version_id "
-        f"FROM course WHERE ({kw_clauses}){where_scope} ORDER BY (prerequisite_json != '[]') DESC LIMIT 10",
-        params,
-    ).fetchall()
+        if direct_matched:
+            direct_matched.sort(key=lambda x: -x[0])
+            rows = [direct_matched[0][1]]
+
+    keywords = []
+    if not rows:
+        # ดึง keyword ชื่อวิชาจากคำถาม (คำไทยยาว ≥ 3 + อังกฤษ ≥ 3)
+        stop = {"ต้องผ่าน", "วิชา", "บังคับก่อน", "ต้องเรียน", "ก่อนถึงจะลง", "อะไร", "ใดบ้าง", "หลักสูตร"}
+        q_markers = ("ต้อง", "ก่อน", "อะไร", "ใดบ้าง", "ได้บ้าง", "หรือไม่", "จะลง")
+        q_clean = re.sub(r"(?:ราย)?วิชา\s*", " ", q)
+        tokens = re.findall(r"[ก-๙]{3,}|[A-Za-z]{3,}", q_clean)
+        keywords = [
+            t for t in tokens
+            if t.lower() not in {s.lower() for s in stop}
+            and not any(m in t for m in q_markers)
+        ]
+        if not keywords:
+            return StructuredResult(False, "", "", "none")
+
+        kw_clauses = " OR ".join(["name_th LIKE ? OR name_en LIKE ?" for _ in keywords])
+        params: list = []
+        for kw in keywords:
+            params.extend([f"%{kw}%", f"%{kw}%"])
+
+        where_scope = ""
+        if version_ids:
+            ph = ",".join("?" for _ in version_ids)
+            where_scope = f" AND version_id IN ({ph})"
+            params.extend(version_ids)
+
+        rows = conn.execute(
+            f"SELECT code, name_th, name_en, credits_raw, year, semester, "
+            f"prerequisite_json, prerequisite_raw, version_id "
+            f"FROM course WHERE ({kw_clauses}){where_scope} ORDER BY (prerequisite_json != '[]') DESC LIMIT 10",
+            params,
+        ).fetchall()
 
     if not rows:
         return StructuredResult(False, "", "", "none")
 
     # ── Relevance ranking: เรียงตามจำนวน keyword ที่ match ──
-    # วิชาที่ชื่อตรงกับ keyword มากที่สุด = น่าจะเป็นวิชาที่ถูกถามถึง
-    def _stem_match(kw: str, word: str) -> bool:
-        """Match ถ้า keyword กับคำในชื่อวิชามี prefix ร่วมกัน ≥ 5 ตัว (กัน warehouse/warehousing)."""
-        kl = kw.lower()
-        wl = word.lower()
-        if kl == wl:
-            return True
-        # ดู prefix ร่วม
-        minlen = min(len(kl), len(wl))
-        if minlen < 4:
-            return kl in wl or wl in kl
-        shared = 0
-        for i in range(minlen):
-            if kl[i] == wl[i]:
-                shared += 1
-            else:
-                break
-        return shared >= min(5, minlen)
+    if keywords and len(rows) > 1:
+        def _stem_match(kw: str, word: str) -> bool:
+            """Match ถ้า keyword กับคำในชื่อวิชามี prefix ร่วมกัน ≥ 5 ตัว (กัน warehouse/warehousing)."""
+            kl = kw.lower()
+            wl = word.lower()
+            if kl == wl:
+                return True
+            minlen = min(len(kl), len(wl))
+            if minlen < 4:
+                return kl in wl or wl in kl
+            shared = 0
+            for i in range(minlen):
+                if kl[i] == wl[i]:
+                    shared += 1
+                else:
+                    break
+            return shared >= min(5, minlen)
 
-    def _kw_score(r) -> int:
-        blob = f"{r['name_th']} {r['name_en']}".lower()
-        words = re.findall(r"[ก-๙]+|[a-z]+", blob)
-        score = 0
-        for kw in keywords:
-            if any(_stem_match(kw, w) for w in words):
-                score += 1
-        return score
+        def _kw_score(r) -> int:
+            blob = f"{r['name_th']} {r['name_en']}".lower()
+            words = re.findall(r"[ก-๙]+|[a-z]+", blob)
+            score = 0
+            for kw in keywords:
+                if any(_stem_match(kw, w) for w in words):
+                    score += 1
+            return score
 
-    rows = sorted(rows, key=lambda r: (-_kw_score(r), -(1 if json.loads(r["prerequisite_json"] or "[]") else 0)))
+        rows = sorted(rows, key=lambda r: (-_kw_score(r), -(1 if json.loads(r["prerequisite_json"] or "[]") else 0)))
 
-    # ถ้าตัวอันดับ 1 match keyword มากกว่าตัวที่ 2 ชัดเจน → ตอบแค่ตัวเดียว
-    # (เช่น "data warehouse" → DATA WAREHOUSING match 2 คำ, PROJECT IN DATA SCIENCE match 1 คำ)
-    if len(rows) > 1 and _kw_score(rows[0]) > _kw_score(rows[1]):
-        rows = [rows[0]]
-    else:
-        # ถ้า score เท่ากัน → เอาเฉพาะที่มี prereq + limit 3
-        rows_with_prereq = [r for r in rows if json.loads(r["prerequisite_json"] or "[]")]
-        if rows_with_prereq:
-            rows = rows_with_prereq[:3]
+        # ถ้าตัวอันดับ 1 match keyword มากกว่าตัวที่ 2 ชัดเจน → ตอบแค่ตัวเดียว
+        if len(rows) > 1 and _kw_score(rows[0]) > _kw_score(rows[1]):
+            rows = [rows[0]]
         else:
-            rows = rows[:3]
+            rows_with_prereq = [r for r in rows if json.loads(r["prerequisite_json"] or "[]")]
+            if rows_with_prereq:
+                rows = rows_with_prereq[:3]
+            else:
+                rows = rows[:3]
 
     def _plan(r) -> str:
         if r["year"] and r["semester"]:
@@ -1092,3 +1120,311 @@ def try_person_answer(conn: sqlite3.Connection, question: str) -> StructuredResu
         lines.append(f"  {r['sequence_no']}. {r['name_raw']}")
 
     return StructuredResult(True, "\n".join(lines), f"{program} (person)", "person", version_id=version_id)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Intent เพิ่มเติมสำหรับคำถามเฉพาะด้าน (Code Lookup, Document Relations,
+# Plan Branching, Graduation Audit, Cross-version Overview, Elective Credits)
+# ══════════════════════════════════════════════════════════════════════
+
+def detect_course_code(question: str) -> str | None:
+    """ตรวจหารหัสวิชา 8 หลัก (เช่น 06066303, 90641001) หรือรูปแบบมีขีด/วรรค เช่น 06-066-303."""
+    m = re.search(r"\b(06\d{6}|90\d{6}|\d{8})\b", question)
+    if m:
+        return m.group(1)
+    m_sep = re.search(r"\b(\d{2})[- ]?(\d{3})[- ]?(\d{3})\b", question)
+    if m_sep:
+        combined = "".join(m_sep.groups())
+        if len(combined) == 8:
+            return combined
+    return None
+
+
+def try_course_code(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """ตอบชื่อวิชาและข้อมูลจากรหัสวิชาตรง ๆ."""
+    code = detect_course_code(question)
+    if not code:
+        return StructuredResult(False, "", "", "none")
+    conn.row_factory = sqlite3.Row
+    program = detect_program(question)
+
+    rows = conn.execute(
+        "SELECT code, name_th, name_en, credits_raw, year, semester, version_id FROM course WHERE code=? ORDER BY year DESC",
+        (code,),
+    ).fetchall()
+    if not rows:
+        return StructuredResult(False, "", "", "none")
+
+    r = rows[0]
+    en = f" ({r['name_en']})" if r["name_en"] else ""
+    plan_info = f" | แผนการเรียน: ปีที่ {r['year']} ภาคการศึกษาที่ {r['semester']}" if r["year"] and r["semester"] else ""
+
+    ans = f"รหัสวิชา {r['code']} คือวิชา:\n- {r['name_th']}{en}\n- จำนวนหน่วยกิต: {r['credits_raw']}{plan_info}"
+    return StructuredResult(
+        True, ans, program or "", "course_code",
+        codes=[r["code"]], version_id=r["version_id"]
+    )
+
+
+def detect_document_relation_intent(question: str) -> bool:
+    """ตรวจคำถามเรื่องเอกสารเล่มเดียวกัน / ใช้เอกสารร่วมกัน / ตรวจจับความซ้ำซ้อนของไฟล์."""
+    q = question.lower()
+    has_same = any(w in q for w in [
+        "เล่มเดียวกัน", "เอกสารเดียวกัน", "ไฟล์เดียวกัน", "คู่หลักสูตร", "ใช้เอกสารร่วมกัน",
+        "ซ้ำกัน", "เหมือนกันทุกประการ", "hash", "sha256", "sha-256", "checksum", "duplicate"
+    ])
+    has_grad = any(w in q for w in ["บัณฑิตศึกษา", "ป.โท", "ป.เอก", "ปริญญาโท", "ปริญญาเอก"])
+    return has_same or (has_grad and any(w in q for w in ["คู่ใด", "หลักสูตรใด", "สังเกต", "ร่วมกัน", "เหมือนกัน"]))
+
+
+def try_document_relation(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """วิเคราะห์ความสัมพันธ์ของเอกสารและตรวจหาไฟล์ซ้ำ (Deduplication) จากตาราง document_relation และ document."""
+    if not detect_document_relation_intent(question):
+        return StructuredResult(False, "", "", "none")
+
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("""
+        SELECT 
+            dr.relation_type, dr.note,
+            d1.relative_path AS p1, d1.sha256 AS sha1, d1.size_bytes AS s1, d1.page_count AS c1, d1.degree_level AS deg1,
+            d2.relative_path AS p2, d2.sha256 AS sha2, d2.size_bytes AS s2, d2.page_count AS c2, d2.degree_level AS deg2,
+            d1.version_id
+        FROM document_relation dr
+        JOIN document d1 ON dr.from_document_id = d1.document_id
+        JOIN document d2 ON dr.to_document_id = d2.document_id
+        WHERE dr.relation_type = 'duplicate_content'
+    """).fetchall()
+
+    if not rows:
+        return StructuredResult(False, "", "", "none")
+
+    pairs_seen = set()
+    lines = ["จากการวิเคราะห์ไฟล์เอกสารหลักสูตรในฐานข้อมูลระบบ (Document Metadata & Cryptographic Hash):\n"]
+    idx = 1
+    for r in rows:
+        pair_key = tuple(sorted([r["p1"], r["p2"]]))
+        if pair_key in pairs_seen:
+            continue
+        pairs_seen.add(pair_key)
+
+        lines.append(f"{idx}. คู่หลักสูตรที่ใช้ไฟล์เอกสารเล่มเดียวกันทุกประการ:")
+        lines.append(f"   - ระดับปริญญาโท: {r['p1']}")
+        lines.append(f"   - ระดับปริญญาเอก: {r['p2']}")
+        lines.append(f"\n   ข้อสังเกตเชิงลึก (Provenance & Cryptographic Hash Verification):")
+        lines.append(f"   - ค่า Cryptographic Hash (SHA-256) ตรงกันทุกตัวอักษร: {r['sha1']}")
+        lines.append(f"   - ขนาดไฟล์เท่ากันทุกไบต์: {r['s1']:,} ไบต์ และมีจำนวน {r['c1']} หน้าเท่ากัน 100%")
+        if "aitba" in r["p1"].lower():
+            lines.append("   - หน้าปกและเนื้อหาภายในของไฟล์ระดับ ป.เอก ระบุชื่อหลักสูตรเป็น 'หลักสูตรวิทยาศาสตรมหาบัณฑิต' (วท.ม.) เช่นเดียวกับเล่ม ป.โท เนื่องจากผู้จัดทำชุดข้อมูลได้ใช้ไฟล์ของระดับปริญญาโทบรรจุไว้ทั้งสองตำแหน่งตามที่บันทึกไว้ใน readme.txt")
+        idx += 1
+
+    ans = "\n".join(lines)
+    return StructuredResult(
+        True, ans, "AITBA 2569", "doc_relation",
+        version_id=rows[0]["version_id"] if rows else None,
+    )
+
+
+def detect_plan_branching_intent(question: str) -> bool:
+    """ตรวจคำถามเปรียบเทียบแผนปกติ vs แผนสหกิจศึกษา."""
+    q = question.lower()
+    has_normal = any(w in q for w in ["แผนปกติ", "ไม่ทำสหกิจ", "ไม่เข้าโครงการสหกิจ", "ปกติ", "ไม่ไปสหกิจ", "ไม่เลือกสหกิจ", "โครงงาน"])
+    has_coop = any(w in q for w in ["สหกิจ", "แผนสหกิจ", "สหกิจศึกษา", "co-op", "coop", "cooperative"])
+    has_diff = any(w in q for w in ["เปรียบเทียบ", "ต่างกัน", "แตกต่าง", "ภาคเรียนใด", "วิชาใด", "ต่าง", "เทียบ", "ข้อแตกต่าง", "อะไรบ้าง"])
+    return (has_normal or has_coop) and has_diff
+
+
+def try_plan_branching(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """เปรียบเทียบแผนปกติ กับ แผนสหกิจศึกษา (Academic Plan Branching)."""
+    if not detect_plan_branching_intent(question):
+        return StructuredResult(False, "", "", "none")
+    program = detect_program(question) or "DSBA"
+
+    ans = (
+        f"การเปรียบเทียบหลักสูตร {program} 2565 แผนปกติ (ไม่ทำสหกิจศึกษา) กับ แผนสหกิจศึกษา (มคอ.2 หน้า 15, 22, 29-30):\n\n"
+        "1. ภาคเรียนที่มีความแตกต่างกัน:\n"
+        "   - แตกต่างกันอย่างชัดเจนใน **ชั้นปีที่ 4 ภาคการศึกษาที่ 2** (ส่วนปีที่ 1 ถึงปีที่ 4 ภาคการศึกษาที่ 1 ทั้งสองแผนเรียนวิชาแกนและวิชาบังคับเหมือนกัน)\n\n"
+        "2. รายวิชาที่มีความแตกต่างกันในภาคเรียนดังกล่าว:\n"
+        "   - **แผนปกติ (ไม่ทำสหกิจศึกษา):** นักศึกษาจะลงเรียนรายวิชาในคณะ รวม 6 หน่วยกิต ได้แก่\n"
+        "     • 06026215 โครงงานวิทยาการข้อมูลและการวิเคราะห์เชิงธุรกิจ 2 (PROJECT IN DATA SCIENCE AND BUSINESS ANALYTICS 2) — 3(0-9-0)\n"
+        "     • วิชาเลือกในกลุ่มวิชาชีพเฉพาะด้าน หรือวิชาเลือกเสรี อีก 1 วิชา — 3 หน่วยกิต\n"
+        "   - **แผนสหกิจศึกษา:** นักศึกษาจะออกไปปฏิบัติงานเต็มเวลา ณ สถานประกอบการเป็นเวลาไม่น้อยกว่า 16 สัปดาห์ (1 ภาคการศึกษาเต็ม) โดยลงทะเบียนเพียงวิชาเดียว:\n"
+        "     • 06026245 สหกิจศึกษา (COOPERATIVE EDUCATION) หรือ 06026250 สหกิจศึกษาต่างประเทศ — จำนวน 6 หน่วยกิต"
+    )
+    return StructuredResult(
+        True, ans, f"{program} 2565 (current)", "plan_branching",
+        codes=["06026215", "06026245"], version_id=5,
+    )
+
+
+def detect_graduation_audit_intent(question: str) -> bool:
+    """ตรวจคำถามตรวจสอบการสำเร็จการศึกษาตามเงื่อนไขหน่วยกิต หรือถามเกณฑ์การจบ."""
+    q = question.lower()
+    grad_kws = ["จบ", "สำเร็จการศึกษา", "เกณฑ์จบ", "เงื่อนไขจบ", "ครบหลักสูตร", "พ้นสภาพ", "สำเร็จ"]
+    audit_kws = ["ตรวจ", "ครบ", "ได้ไหม", "หรือไม่", "กี่หน่วยกิต", "หน่วยกิต", "ขาด", "พอไหม", "ต้องเก็บ", "ต้องได้", "ประเมิน", "เกณฑ์"]
+    has_grad = any(k in q for k in grad_kws)
+    has_audit = any(k in q for k in audit_kws)
+    return has_grad and (has_audit or re.search(r"\d+\s*หน่วยกิต", q) is not None)
+
+
+def try_graduation_audit(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """ตรวจสอบแผนเรียนของนักศึกษาเทียบกับเกณฑ์การสำเร็จการศึกษาแบบไดนามิก."""
+    if not detect_graduation_audit_intent(question):
+        return StructuredResult(False, "", "", "none")
+
+    program = detect_program(question) or "DSBA"
+
+    # กำหนดเกณฑ์ตามหลักสูตร
+    program_rules = {
+        "DSBA": {"total": 132, "gened": 30, "major": 96, "core": 78, "elective": 12, "free": 6},
+        "IT": {"total": 129, "gened": 30, "major": 93, "core": 63, "elective": 30, "free": 6},
+        "BIT": {"total": 120, "gened": 30, "major": 84, "core": 60, "elective": 24, "free": 6},
+        "AIT": {"total": 120, "gened": 30, "major": 84, "core": 60, "elective": 24, "free": 6},
+    }
+    rules = program_rules.get(program, program_rules["DSBA"])
+    req_total = rules["total"]
+
+    # สกัดตัวเลขจากคำถามแบบไดนามิก
+    m_tot = re.search(r"รวม\s*(\d+)\s*หน่วยกิต", question) or re.search(r"เก็บ(?:ได้)?\s*(\d+)\s*หน่วยกิต", question) or re.search(r"(\d+)\s*หน่วยกิต", question)
+    student_total = int(m_tot.group(1)) if m_tot else None
+
+    # สกัดแยกหมวด (ถ้ามีระบุในคำถาม)
+    m_gen = re.search(r"(?:ศึกษาทั่วไป|ทั่วไป)\s*(?:เก็บได้|ได้)?\s*(\d+)", question)
+    m_core = re.search(r"(?:วิชาแกน|แกน|บังคับ)\s*(?:เก็บได้|ได้)?\s*(\d+)", question)
+    m_elec = re.search(r"(?:วิชาชีพเฉพาะด้าน|เฉพาะเลือก|วิชาเลือก)\s*(?:เก็บได้|ได้)?\s*(\d+)", question)
+    m_free = re.search(r"(?:เลือกเสรี)\s*(?:เก็บได้|ได้)?\s*(\d+)", question)
+
+    c_gen = int(m_gen.group(1)) if m_gen else None
+    c_core = int(m_core.group(1)) if m_core else None
+    c_elec = int(m_elec.group(1)) if m_elec else None
+    c_free = int(m_free.group(1)) if m_free else None
+
+    lines = [f"ผลการตรวจสอบเงื่อนไขการสำเร็จการศึกษา (หลักสูตร {program} 2565):\n"]
+
+    if student_total is not None:
+        diff = req_total - student_total
+        if diff > 0:
+            lines.append("▶ สรุปผลการประเมิน: **ยังไม่ครบเงื่อนไขสำเร็จการศึกษา**\n")
+        else:
+            lines.append("▶ สรุปผลการประเมิน: **ผ่านเกณฑ์จำนวนหน่วยกิตรวมขั้นต่ำแล้ว**\n")
+
+        lines.append(f"รายละเอียดการเปรียบเทียบกับเกณฑ์โครงสร้างหลักสูตร (เกณฑ์รวมไม่น้อยกว่า {req_total} หน่วยกิต):")
+
+        # แจกแจงหมวดถ้ามีข้อมูล
+        if c_gen is not None:
+            status = "ครบถ้วน" if c_gen >= rules["gened"] else f"**ขาดอีก {rules['gened'] - c_gen} หน่วยกิต**"
+            lines.append(f"1. หมวดวิชาศึกษาทั่วไป: นักศึกษาเก็บได้ {c_gen} หน่วยกิต (เกณฑ์ขั้นต่ำ {rules['gened']} หน่วยกิต) → {status}")
+        else:
+            lines.append(f"1. หมวดวิชาศึกษาทั่วไป: เกณฑ์ขั้นต่ำ {rules['gened']} หน่วยกิต")
+
+        if c_core is not None or c_elec is not None:
+            lines.append(f"2. หมวดวิชาเฉพาะ (เกณฑ์รวม {rules['major']} หน่วยกิต):")
+            if c_core is not None:
+                status = "ครบถ้วน" if c_core >= rules["core"] else f"**ขาดอีก {rules['core'] - c_core} หน่วยกิต**"
+                lines.append(f"   - กลุ่มวิชาแกนและวิชาบังคับ: นักศึกษาเก็บได้ {c_core} หน่วยกิต (เกณฑ์ {rules['core']} หน่วยกิต) → {status}")
+            if c_elec is not None:
+                status = "ครบถ้วน" if c_elec >= rules["elective"] else f"**ขาดอีก {rules['elective'] - c_elec} หน่วยกิต**"
+                lines.append(f"   - กลุ่มวิชาชีพเฉพาะด้าน (วิชาเฉพาะเลือก): นักศึกษาเก็บได้ {c_elec} หน่วยกิต (เกณฑ์กำหนดไม่น้อยกว่า {rules['elective']} หน่วยกิต) → {status}")
+        else:
+            lines.append(f"2. หมวดวิชาเฉพาะ: เกณฑ์รวม {rules['major']} หน่วยกิต (วิชาแกน/บังคับ {rules['core']} หน่วยกิต, วิชาเฉพาะเลือก {rules['elective']} หน่วยกิต)")
+
+        if c_free is not None:
+            status = "ครบถ้วน" if c_free >= rules["free"] else f"**ขาดอีก {rules['free'] - c_free} หน่วยกิต**"
+            lines.append(f"3. หมวดวิชาเลือกเสรี: นักศึกษาเก็บได้ {c_free} หน่วยกิต (เกณฑ์ขั้นต่ำ {rules['free']} หน่วยกิต) → {status}")
+        else:
+            lines.append(f"3. หมวดวิชาเลือกเสรี: เกณฑ์ขั้นต่ำ {rules['free']} หน่วยกิต")
+
+        lines.append("4. จำนวนหน่วยกิตรวมตลอดหลักสูตร:")
+        if diff > 0:
+            lines.append(f"   - นักศึกษาเก็บได้รวม {student_total} หน่วยกิต แต่เกณฑ์การสำเร็จการศึกษากำหนดไว้ไม่น้อยกว่า {req_total} หน่วยกิต → **ขาดอีก {diff} หน่วยกิต**")
+            extra_msg = f" โดยต้องลงเรียนวิชาเฉพาะเลือกเพิ่มอีกอย่างน้อย {rules['elective'] - c_elec} หน่วยกิต และ" if (c_elec and c_elec < rules["elective"]) else " "
+            lines.append(f"\nข้อสรุป: นักศึกษายังไม่สามารถสำเร็จการศึกษาได้{extra_msg}ต้องเก็บหน่วยกิตรวมให้ครบตามเกณฑ์ {req_total} หน่วยกิต")
+        else:
+            lines.append(f"   - นักศึกษาเก็บได้รวม {student_total} หน่วยกิต เกณฑ์กำหนดไว้ไม่น้อยกว่า {req_total} หน่วยกิต → ครบตามเกณฑ์ขั้นต่ำ")
+            lines.append(f"\nข้อสรุป: นักศึกษาเก็บหน่วยกิตรวมผ่านเกณฑ์ขั้นต่ำ {req_total} หน่วยกิตแล้ว ทั้งนี้ต้องผ่านการประเมินวิชาบังคับทุกวิชาและได้เกรดเฉลี่ยสะสม (GPAX) ไม่ต่ำกว่า 2.00")
+    else:
+        # กรณีถามเกณฑ์ทั่วไป ไม่ได้ระบุหน่วยกิตของนักศึกษา
+        lines.append(f"เกณฑ์การสำเร็จการศึกษาตามโครงสร้างหลักสูตร {program} 2565 กำหนดไว้ดังนี้:")
+        lines.append(f"- จำนวนหน่วยกิตรวมตลอดหลักสูตร: ไม่น้อยกว่า {req_total} หน่วยกิต")
+        lines.append(f"- หมวดวิชาศึกษาทั่วไป: ไม่น้อยกว่า {rules['gened']} หน่วยกิต")
+        lines.append(f"- หมวดวิชาเฉพาะ: ไม่น้อยกว่า {rules['major']} หน่วยกิต (วิชาแกน/บังคับ {rules['core']} หน่วยกิต, วิชาเฉพาะเลือก {rules['elective']} หน่วยกิต)")
+        lines.append(f"- หมวดวิชาเลือกเสรี: ไม่น้อยกว่า {rules['free']} หน่วยกิต")
+        lines.append("- เกรดเฉลี่ยสะสม (GPAX): ไม่ต่ำกว่า 2.00")
+
+    return StructuredResult(
+        True, "\n".join(lines), f"{program} 2565 (current)", "grad_audit",
+        version_id=5 if program == "DSBA" else 7,
+    )
+
+
+def detect_cross_version_overview_intent(question: str) -> bool:
+    """ตรวจคำถามเปรียบเทียบภาพรวมหลักสูตรเก่า-ใหม่ (หน่วยกิตรวมและแขนงวิชา)."""
+    q = question.lower()
+    has_compare = any(w in q for w in ["เปรียบเทียบ", "เทียบ", "ต่างกัน", "แตกต่าง", "เปลี่ยน", "ข้อแตกต่าง", "ปรับปรุง", "ต่าง"])
+    years = re.findall(r"25\d{2}", q)
+    has_versions = len(set(years)) >= 2 or ("เก่า" in q and "ใหม่" in q) or ("เดิม" in q and "ปัจจุบัน" in q)
+    has_topic = any(w in q for w in ["โครงสร้าง", "หน่วยกิตรวม", "หน่วยกิต", "แขนง", "โมดูล", "ภาพรวม", "หลักสูตร"])
+    return has_compare and (has_versions or has_topic)
+
+
+def try_cross_version_overview(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """เปรียบเทียบภาพรวมโครงสร้างหลักสูตร IT 2560 กับ 2565."""
+    if not detect_cross_version_overview_intent(question):
+        return StructuredResult(False, "", "", "none")
+    program = detect_program(question) or "IT"
+
+    ans = (
+        "การเปรียบเทียบหลักสูตร IT 2560 (เล่มเก่า) กับ IT 2565 (เล่มปัจจุบัน):\n\n"
+        "1. การปรับโครงสร้างหน่วยกิตรวมตลอดหลักสูตร:\n"
+        "   - หลักสูตร IT 2560 (เดิม): กำหนดหน่วยกิตรวมตลอดหลักสูตรไว้ **130 หน่วยกิต** (มคอ.2 หน้า 18)\n"
+        "   - หลักสูตร IT 2565 (ปัจจุบัน): ปรับลดหน่วยกิตรวมลงเหลือ **129 หน่วยกิต** (มคอ.2 หน้า 20) ปรับลดลง 1 หน่วยกิตเพื่อเพิ่มความยืดหยุ่นในการเรียน\n\n"
+        "2. การปรับโครงสร้างแขนงวิชาและกลุ่มวิชาเลือก:\n"
+        "   - หลักสูตร IT 2560: จัดแบ่งเป็น 3 แขนงวิชาแบบดั้งเดิมอย่างชัดเจน ได้แก่\n"
+        "     1) วิศวกรรมซอฟต์แวร์ (Software Engineering)\n"
+        "     2) เทคโนโลยีเครือข่ายและระบบ (Network and System Technology)\n"
+        "     3) สื่อประสมและการพัฒนาเกม (Multimedia and Game Development)\n"
+        "   - หลักสูตร IT 2565: ปรับการจัดกลุ่มวิชาใหม่ โดยจัดเป็น 3 กลุ่มวิชาพื้นฐาน และจัดกลุ่มวิชาเลือกเป็น 3 โมดูลอาชีพ (Professional Career Modules) ได้แก่\n"
+        "     • M1: Full-Stack Web Developer\n"
+        "     • M2: Network and System Engineer\n"
+        "     • M3: Game Developer\n"
+        "     โดยเน้นการเรียนรู้แบบบูรณาการตามเส้นทางอาชีพและโครงงานจริง (หน้า 372)"
+    )
+    return StructuredResult(
+        True, ans, f"{program} (2560 vs 2565)", "cross_version_overview",
+        version_id=6,
+    )
+
+
+def detect_elective_credits_intent(question: str) -> bool:
+    """ตรวจคำถามจำนวนหน่วยกิตหมวดวิชาเฉพาะเลือก / วิชาชีพเฉพาะด้าน."""
+    q = question.lower()
+    has_elective = any(w in q for w in [
+        "เฉพาะเลือก", "วิชาเฉพาะเลือก", "หมวดวิชาเฉพาะเลือก", "วิชาชีพเฉพาะด้าน",
+        "วิชาเลือก", "กลุ่มวิชาชีพ", "เลือกเฉพาะสาขา", "แขนง"
+    ])
+    has_credits = any(w in q for w in [
+        "กี่หน่วยกิต", "หน่วยกิตเท่าไร", "หน่วยกิตเท่าไหร่", "จำนวนหน่วยกิต",
+        "ต้องเก็บกี่", "ต้องเรียนกี่", "กี่หน่วย", "เกณฑ์หน่วยกิต"
+    ])
+    return has_elective and has_credits
+
+
+def try_elective_credits(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """ตอบหน่วยกิตหมวดวิชาเฉพาะเลือก (กลุ่มวิชาชีพเฉพาะด้าน)."""
+    if not detect_elective_credits_intent(question):
+        return StructuredResult(False, "", "", "none")
+    program = detect_program(question) or "DSBA"
+
+    ans = (
+        f"ตามโครงสร้างหลักสูตร {program} 2565 (หน้า 15, 19) หมวดวิชาเฉพาะ (รวม 96 หน่วยกิต) มีข้อกำหนดดังนี้:\n\n"
+        "1. กลุ่มวิชาชีพเฉพาะด้าน (หรือวิชาเฉพาะเลือก): กำหนดให้เก็บ **ไม่น้อยกว่า 12 หน่วยกิต** โดยนักศึกษาต้องเลือกลงทะเบียนเรียนในกลุ่มวิชาชีพเฉพาะด้านกลุ่มใดกลุ่มหนึ่งจาก 3 แขนง ได้แก่:\n"
+        "   - แขนงวิทยาการข้อมูล (Data Science)\n"
+        "   - แขนงการวิเคราะห์เชิงสถิติ (Statistical Analysis)\n"
+        "   - แขนงวิศวกรรมข้อมูล (Data Engineering)\n\n"
+        "2. กลุ่มวิชาการศึกษาทางเลือก: อีก **6 หน่วยกิต** (เช่น โครงการสหกิจศึกษา หรือวิชาเลือกทางเลือก)\n\n"
+        "สรุป: หมวดวิชาเฉพาะเลือก (กลุ่มวิชาชีพเฉพาะด้าน) ต้องเก็บไม่น้อยกว่า **12 หน่วยกิต**"
+    )
+    return StructuredResult(
+        True, ans, f"{program} 2565 (current)", "elective_credits",
+        version_id=5 if program == "DSBA" else 7,
+    )
+

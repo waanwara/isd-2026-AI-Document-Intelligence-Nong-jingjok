@@ -47,8 +47,14 @@ def encode(texts: list[str], batch_size: int = 32, max_length: int = 256) -> np.
         mask = inputs["attention_mask"].unsqueeze(-1).float()
         emb = (outputs.last_hidden_state * mask).sum(1) / mask.sum(1)
         emb = torch.nn.functional.normalize(emb, p=2, dim=1)
-        out.append(emb.cpu().float().numpy().astype(np.float32))
+        try:
+            arr = emb.cpu().float().numpy().astype(np.float32)
+        except Exception:
+            arr = np.array(emb.cpu().float().tolist(), dtype=np.float32)
+        out.append(arr)
     return np.vstack(out) if out else np.empty((0, 1024), dtype=np.float32)
+
+
 
 
 def encode_one(text: str) -> np.ndarray:

@@ -50,6 +50,32 @@ const viewerInfo = document.getElementById("viewer-info");
 
 const PROGRAM_ICONS = { IT: "💻", DSBA: "📊", AIT: "🤖", AITBA: "🎓", BIT: "🏫" };
 
+const DOC_LABELS = {
+    "a39d6db17ccc5cf4": "DSBA 2565",
+    "344608973458106b": "DSBA 2560",
+    "5dec80d93328c9fa": "IT 2565",
+    "09c745bf0cd1fefe": "IT 2560",
+    "71905b5244a14b94": "AIT 2566",
+    "75085b1dd7523d89": "BIT 2565",
+    "1ffe70b5db234caa": "BIT 2560",
+    "bef8aad4da2cad3d": "ปร.ด. AITBA 2569",
+    "430d1625db23e79b": "วท.ม. AITBA 2569",
+    "a2bb37ed5f089453": "วท.ม. AITBA 2564",
+    "272a77249680d878": "วท.ม. IT 2568",
+    "0bb1dc8496421928": "วท.ม. IT 2563",
+    "184978cecf5b14e7": "ปร.ด. IT 2566",
+    "4d03ccad7edd646c": "ปร.ด. IT 2561",
+};
+
+function formatDocLabel(docId) {
+    if (!docId) return "เอกสารหลักสูตร";
+    if (DOC_LABELS[docId]) return DOC_LABELS[docId];
+    if (docId.endsWith(".pdf")) {
+        return docId.replace(/\.pdf$/i, "").replace(/^.*\//, "");
+    }
+    return docId;
+}
+
 // ── Character counter ────────────────────────────────────────────────
 
 function updateCharCount() {
@@ -170,15 +196,17 @@ function renderAnswer(data, question, selectedProgram) {
     validationStatus.classList.toggle("hidden", !anyStatus);
     if (anyStatus) validationStatus.classList.add("flex");
 
-    // Citations — rendered as small clickable chips
+    // Citations — rendered as clean clickable chips
     citationsList.innerHTML = "";
     if (data.citations && data.citations.length > 0) {
         data.citations.forEach((cite) => {
             const chip = document.createElement("button");
             chip.type = "button";
-            chip.className = "inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-kmitl-50 border border-kmitl-200 text-kmitl-accent font-medium hover:bg-kmitl-100 transition";
-            chip.setAttribute("aria-label", `ดูอ้างอิง ${cite.citation_id}`);
-            chip.innerHTML = `<span class="font-bold">[${cite.citation_id}]</span> ${cite.document_id} หน้า ${cite.page}`;
+            chip.className = "inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-kmitl-200 text-kmitl-dark text-xs font-medium shadow-sm hover:border-kmitl-primary hover:text-kmitl-primary transition cursor-pointer";
+            const docLabel = formatDocLabel(cite.document_id);
+            chip.setAttribute("aria-label", `ดูอ้างอิง ${docLabel} หน้า ${cite.page}`);
+            chip.setAttribute("title", cite.heading ? `${docLabel} หน้า ${cite.page} (${cite.heading})` : `${docLabel} หน้า ${cite.page}`);
+            chip.innerHTML = `<span class="text-kmitl-primary">📄</span> <span class="font-semibold">${docLabel}</span> หน้า ${cite.page}`;
             chip.addEventListener("click", () => openPageViewer(cite.citation_id));
             citationsList.appendChild(chip);
         });
@@ -306,8 +334,9 @@ async function openPageViewer(citationId) {
 }
 
 function renderPageContent(data) {
-    viewerTitle.textContent = `${data.citation_id} — ${data.heading}`;
-    viewerInfo.textContent = `เอกสาร: ${data.document_id} | หน้า: ${data.page}`;
+    const docLabel = formatDocLabel(data.document_id);
+    viewerTitle.textContent = `${docLabel} — หน้า ${data.page}`;
+    viewerInfo.textContent = data.heading ? `หัวข้อ: ${data.heading}` : `เอกสารหลักสูตร ${docLabel}`;
 
     viewerCanvas.classList.add("hidden");
 
