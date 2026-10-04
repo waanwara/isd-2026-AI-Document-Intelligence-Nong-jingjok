@@ -1,24 +1,28 @@
-# Jingjok-Thorius — runtime dependencies (Python 3.11)
-# ติดตั้งด้วย: pip install -r requirements.txt
+# Jingjok-Thorius - runtime dependencies (Python 3.11)
+# Install with: pip install -r requirements.txt
+# (this file is ASCII-only on purpose: pip reads it with the Windows locale encoding)
 
-# ── Web server ──
+# --- Web server ---
 fastapi>=0.115,<1
 uvicorn>=0.30
 pydantic>=2.9,<3
 python-dotenv>=1.0
 
-# ── LLM (Typhoon ผ่าน OpenAI-compatible API) ──
+# --- LLM (Typhoon via OpenAI-compatible API) ---
 openai>=1.40
 
-# ── Retrieval / ข้อมูล ──
+# --- Retrieval / data ---
 numpy>=1.26
 pythainlp>=5.0
 pymupdf>=1.24
 psutil>=5.9
 
-# ── ใช้เฉพาะตอนรันสคริปต์ทดสอบ run_live_qa_tests.py ──
+# --- Only for the test runner run_live_qa_tests.py ---
 openpyxl>=3.1
 
-# ── (ไม่บังคับ) semantic search ด้วย bge-m3 ──
-# ถ้าไม่ติดตั้ง ระบบจะถอยไปใช้ lexical search (FTS5) อัตโนมัติ
-# ติดตั้งเพิ่ม: pip install torch transformers
+# --- Semantic search (bge-m3): needed for the accuracy reported in the README ---
+# Without these the server still starts but falls back to lexical search and some
+# topic questions (e.g. "how many credits are programming courses") get worse answers.
+# The BAAI/bge-m3 model (~2.3 GB) is fetched by setup_model.py (start.bat runs it).
+torch>=2.2
+transformers>=4.44

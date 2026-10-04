@@ -60,11 +60,25 @@ def _db_path() -> pathlib.Path:
 # ── Lazy singletons (index / LLM) — โหลดครั้งเดียวแล้วแคชใน app.state ──
 
 
+def _embedding_stack_available() -> bool:
+    """True ถ้า torch + transformers ติดตั้งอยู่ (จำเป็นต่อการ encode คำถามด้วย bge-m3).
+
+    ถ้าไม่มี ให้ข้าม dense/course index แล้วใช้ lexical + structured path แทน
+    แทนที่จะให้ทุกคำถามล้มด้วย ModuleNotFoundError
+    """
+    import importlib.util
+
+    return all(importlib.util.find_spec(m) is not None for m in ("torch", "transformers"))
+
+
 def _get_course_index(app: FastAPI, db_path: Any) -> Any:
     """โหลด CourseSemanticIndex ครั้งเดียวแล้วแคช (None ถ้าไม่มี embedding)."""
     cached = getattr(app.state, "course_index", "unset")
     if cached != "unset":
         return cached
+    if not _embedding_stack_available():
+        app.state.course_index = None
+        return None
     try:
         from katrag.query.course_semantic import CourseSemanticIndex
 
@@ -80,6 +94,9 @@ def _get_dense_index(app: FastAPI, db_path: Any) -> Any:
     cached = getattr(app.state, "dense_index", "unset")
     if cached != "unset":
         return cached
+    if not _embedding_stack_available():
+        app.state.dense_index = None
+        return None
     try:
         from katrag.index.dense_search import DenseSearchIndex
 

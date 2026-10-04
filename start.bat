@@ -42,6 +42,12 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:: 3.6 ดาวน์โหลดโมเดล bge-m3 ครั้งแรก (~2.3 GB ต้องต่ออินเทอร์เน็ต) — ครั้งต่อไปใช้ cache
+python setup_model.py
+if %errorlevel% neq 0 (
+    echo [WARN] ดำเนินการต่อโดยไม่มี semantic search
+)
+
 :: 4. เปิด Web Browser อัตโนมัติหลังจากเซิร์ฟเวอร์เริ่มทำงาน
 echo [INFO] กำลังเปิดเซิร์ฟเวอร์ที่ http://127.0.0.1:8000/ ...
 echo [INFO] เว็บบราวเซอร์จะเปิดขึ้นโดยอัตโนมัติในอีก 2 วินาที
