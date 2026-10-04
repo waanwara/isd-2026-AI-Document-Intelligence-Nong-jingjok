@@ -118,12 +118,22 @@ def populate(db_path: Path | str) -> dict[str, int]:
 
         # หา "course header positions" = รหัสที่มี credit ในระยะ 200 ตัว
         # และไม่อยู่ใน prereq zone
+        #
+        # รูปแบบที่วาง credit ไว้ท้ายบล็อก (AIT/DSBA ฉบับใหม่) ถ้าวิชามีวิชาบังคับก่อน
+        # 2 ตัว ข้อความไทย + อังกฤษของ prereq ยาวจน credit เลยระยะ 200 ตัวไป
+        # (เช่น 06046406 พื้นฐานการเรียนรู้เชิงลึก) จึงยอมให้ไกลถึง 500 ตัว
+        # เฉพาะเมื่อคำว่า วิชาบังคับก่อน/PREREQUISITE ตามหลังรหัสภายใน 200 ตัว
         header_positions: list[tuple[int, str]] = []  # (start_pos, code)
         for cm in code_positions:
             if in_prereq_zone(cm.start()):
                 continue
             lookahead = text[cm.start():cm.start() + 200]
             if _CREDIT_RE.search(lookahead):
+                header_positions.append((cm.start(), cm.group(1)))
+                continue
+            if _PREREQ_KW.search(lookahead) and _CREDIT_RE.search(
+                text, cm.start(), cm.start() + 500
+            ):
                 header_positions.append((cm.start(), cm.group(1)))
 
         if not header_positions:

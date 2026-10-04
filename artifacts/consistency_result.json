@@ -92,11 +92,11 @@
       "title": "วิชาบังคับก่อน อยู่ภาคที่มาก่อนจริง",
       "catches": "prerequisite ผิดตัว, ชั้นปี/ภาคผิด, หรือเล่มเขียนผิด",
       "severity": "error",
-      "checked": 48,
+      "checked": 51,
       "finding_count": 2,
       "error_count": 0,
       "warning_count": 2,
-      "pass_rate": 0.9583,
+      "pass_rate": 0.9608,
       "passed": false,
       "findings": [
         {

@@ -35,6 +35,10 @@ from katrag.query.retriever import search as lexical_search
 from katrag.query.semantic_retriever import hybrid_search
 from katrag.query.structured_query import (
     detect_course_code,
+    asks_about_courses,
+    compares_versions,
+    detect_credit_compare_intent,
+    detect_versions,
     detect_cross_version_intent,
     detect_document_relation_intent,
     detect_graduation_audit_intent,
@@ -47,6 +51,7 @@ from katrag.query.structured_query import (
     detect_year,
     source_pages_for_codes,
     try_course_code,
+    try_credit_compare,
     try_cross_version_diff,
     try_document_relation,
     try_graduation_audit,
@@ -81,7 +86,7 @@ MIN_EVIDENCE = 3
 DIRECT_INTENTS = frozenset({
     "year_sem", "all_courses", "plan_summary", "cross_version",
     "topic_courses", "topic_semantic", "prerequisite", "rule", "person",
-    "course_code", "doc_relation", "grad_audit",
+    "course_code", "doc_relation", "grad_audit", "credit_compare",
 })
 
 ALWAYS_DIRECT_INTENTS = frozenset({
@@ -319,6 +324,12 @@ def _dispatch_intent(conn: sqlite3.Connection, question: str):
         if sr.matched:
             return sr
 
+    # 2.1 เทียบหน่วยกิตรวมของหลายเวอร์ชัน/หลายหลักสูตร (จากตาราง rule)
+    if detect_credit_compare_intent(conn, question):
+        sr = try_credit_compare(conn, question)
+        if sr.matched:
+            return sr
+
     # 3. เกณฑ์สำเร็จการศึกษา/เกียรตินิยม — คำเฉพาะเจาะจง เช็กก่อน intent อื่นได้
     if detect_rule_intent(question) is not None:
         sr = try_rule_answer(conn, question)
@@ -337,9 +348,16 @@ def _dispatch_intent(conn: sqlite3.Connection, question: str):
         if sr.matched:
             return sr
         return try_structured_answer(conn, question)
-    if detect_cross_version_intent(question):
+    # เทียบรายชื่อวิชาข้ามเวอร์ชัน เฉพาะเมื่อถามเรื่องรายวิชา — คำถามเทียบแผน/โครงสร้าง
+    # ปล่อยไป retrieval ซึ่งค้นทุกเวอร์ชันที่คำถามระบุ
+    if (
+        detect_cross_version_intent(question)
+        and asks_about_courses(question)
+        and compares_versions(conn, question)
+    ):
         return try_cross_version_diff(conn, question)
-    if detect_plan_summary_intent(question):
+    # คำถามที่ระบุ 2 เวอร์ชันขึ้นไปเป็นการเทียบ ไม่ใช่ขอดูแผนทั้งหลักสูตรของเวอร์ชันเดียว
+    if detect_plan_summary_intent(question) and len(detect_versions(conn, question)) < 2:
         return try_plan_summary(conn, question)
     return try_structured_answer(conn, question)
 

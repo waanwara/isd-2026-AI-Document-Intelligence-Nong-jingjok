@@ -470,8 +470,9 @@ notes = [
     "1) 'ตรวจคำสำคัญ' ผ่านง่าย (เช่น E2 ตรวจแค่มีเลข 3) จึงไม่ควรใช้เป็นอัตราความถูกต้อง ให้ดูคอลัมน์ 'ตรวจโดยคน'",
     "2) ผลตรวจโดยคนอ่านเทียบเฉลยในไฟล์นี้ ไม่ได้เทียบกับ PDF ต้นฉบับโดยตรง และผูกกับคำตอบรอบที่ตรวจ (คำถามเชิงเหตุผลเรียก LLM คำตอบเปลี่ยนได้ทุกรอบ)",
     "3) ความถูกต้องของ citation ไม่ได้ตรวจรายข้อในไฟล์นี้ วัดแยกด้วย python -m katrag.eval.qa_eval (19 ข้อ): precision 0.57, recall 0.53",
-    "4) คำตอบสำเร็จรูปที่เคยเขียนไว้ในโค้ดสำหรับ M8, H5, C1, C3 ถูกถอดออกแล้ว ผลในไฟล์นี้จึงมาจาก pipeline จริง (ฐานข้อมูล / retrieval + LLM) ผลของ C1 และ C3 จึงไม่ดี ซึ่งตรงกับที่ระบบทำได้จริง",
-    "4.1) ข้อที่เรียก LLM ตอบไม่เหมือนเดิมทุกรอบ เช่น M8 รันซ้ำ 8 ครั้งพบเลข 12 ในคำตอบ 5 ครั้ง; H5 พบ 8 ครั้งจาก 8",
+    "4) คำตอบสำเร็จรูปที่เคยเขียนไว้ในโค้ดสำหรับ M8, H5, C1, C3 ถูกถอดออกแล้ว ผลในไฟล์นี้มาจาก pipeline จริง (ฐานข้อมูล / retrieval + LLM)",
+    "4.1) ข้อที่เรียก LLM ตอบไม่เหมือนเดิมทุกรอบ (เช่น M8, H2) ผลตรวจโดยคนผูกกับคำตอบของรอบที่ตรวจ",
+    "4.2) ข้อท้าทายเพิ่มเติม 20 ข้อ (เขียนเฉลยจากเล่มก่อนรัน รายงานทุกข้อ) อยู่ในแผ่น Challenge (extended)",
     "5) คอลัมน์ 'เส้นทางประมวลผล' ได้จากการ trace โค้ด pipeline (นับว่ามีการเรียก LLM หรือไม่) ไม่ใช่ข้อมูลที่ API ส่งกลับมา",
     "6) เฉลยข้อ H4 เดิมเขียน 48 วิชา แต่ฐานข้อมูลปัจจุบันให้ 52 (DSBA 2560 71 ชื่อ / 2565 75 ชื่อ) ผลของระบบตรงกับฐานข้อมูล",
 ]
@@ -538,7 +539,7 @@ crit_rows = [
     ("1. ระดับ 4 ท้าทาย (Multi-hop & Cross-version)",
      "สกัดเล่มหลายเวอร์ชัน เชื่อมโยงข้อมูลหลายจุด และอ้างอิงหน้า/ข้อในเล่มได้ถูกต้อง",
      c_lines,
-     "C1: ตัวเลขหน่วยกิตรวมที่ LLM เรียบเรียงผิด/ขัดกันเอง; C3: ไม่ตรงเฉลย (ยังไม่ได้ยืนยันกับ PDF ว่าฝั่งไหนถูก) เพราะ intent เทียบเวอร์ชันถูกจับผิดประเภท; C2: ดึงจากตาราง document_relation ถูกต้อง"),
+     " · ".join(f"{r['id']}: {r['note']}" for r in chal if r["note"])),
     ("2. ความเร็ว (Latency)",
      "ตอบ 1 คำถามระดับยากภายใน < 5 วินาที (รวม retrieval + generate)",
      f"ระดับยาก {len(hard_t)} ข้อ เฉลี่ย {sum(hard_t)/len(hard_t):.2f}s ช้าสุด {max(hard_t):.2f}s · ทั้ง {n_total} ข้อ ต่ำกว่า 5s {sum(t < 5 for t in times)}/{n_total}",
@@ -553,6 +554,42 @@ for ri, row in enumerate(crit_rows, start=4):
         c.alignment = align_left_top
 for i, w in enumerate([34, 46, 52, 60], start=1):
     wc.column_dimensions[get_column_letter(i)].width = w
+
+# ── Sheet 4: Extended challenge set (recorded run, every question reported) ──
+EXT_PATH = Path("docs/challenge_extended.json")
+if EXT_PATH.exists():
+    ext = json.loads(EXT_PATH.read_text(encoding="utf-8"))
+    we = wb.create_sheet(title="Challenge (extended)")
+    we["A1"] = "ข้อท้าทายเพิ่มเติม — บันทึกจากการรันวันที่ " + ext["_meta"].get("run_on", "-")
+    we["A1"].font = font_title
+    we["A2"] = ext["_meta"].get("method", "")
+    we["A2"].font = font_subtitle
+    r0 = 4
+    for key, desc in ext["_meta"].get("sets", {}).items():
+        items = [i for i in ext["items"] if i["set"] == key]
+        full = sum(i["verdict"] == "ถูกครบ" for i in items)
+        part = sum(i["verdict"] == "ถูกบางส่วน" for i in items)
+        bad = sum(i["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for i in items)
+        first = ext["_meta"].get("first_measure", {}).get(key, "")
+        we.cell(row=r0, column=1, value=desc).font = font_bold
+        we.cell(row=r0, column=4, value=f"ผลล่าสุด: ถูกครบ {full} · บางส่วน {part} · ผิด {bad}" + (f"  ({first})" if first else "")).font = font_cell
+        r0 += 1
+    r0 += 1
+    ext_headers = ["ข้อที่", "ชุด", "หลักสูตร", "คำถาม", "เฉลย (จากเล่ม)", "หน้าที่มาของเฉลย", "คำตอบจริงจากเซิร์ฟเวอร์", "ตรวจโดยคน", "หมายเหตุ", "เวลาตอบ (s)"]
+    for ci, h in enumerate(ext_headers, start=1):
+        c = we.cell(row=r0, column=ci, value=h)
+        c.font, c.fill, c.alignment, c.border = font_header, fill_header, align_center, thin_border
+    for ri, it in enumerate(ext["items"], start=r0 + 1):
+        we.row_dimensions[ri].height = 70
+        vals = [it["id"], it["set"], it["program"], it["question"], it["expected"], it["source"], it["answer"], it["verdict"], it["note"], it["latency"]]
+        for ci, v in enumerate(vals, start=1):
+            c = we.cell(row=ri, column=ci, value=v)
+            c.font, c.border = font_cell, thin_border
+            c.alignment = align_center_top if ci in (1, 2, 3, 8, 10) else align_left_top
+            if ci == 8:
+                verdict_style(c, v)
+    for i, w in enumerate([7, 6, 9, 40, 36, 22, 56, 13, 40, 10], start=1):
+        we.column_dimensions[get_column_letter(i)].width = w
 
 output_path = Path("docs/tester.xlsx")
 alt_path = Path("docs/tester_live.xlsx")

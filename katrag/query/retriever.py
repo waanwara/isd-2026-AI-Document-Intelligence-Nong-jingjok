@@ -168,6 +168,8 @@ def search(
     conn: sqlite3.Connection,
     question: str,
     limit: int = 6,
+    *,
+    version_ids: list[int] | None = None,
 ) -> list[RetrievedChunk]:
     """ค้น chunks ที่เกี่ยวข้องที่สุดกับคำถาม."""
     conn.row_factory = sqlite3.Row
@@ -178,8 +180,9 @@ def search(
     keywords = extract_keywords(question, program)
 
     # ── กำหนดขอบเขต version จาก program (+ year ถ้ามี) ──
-    version_ids: list[int] = []
-    if program:
+    # ผู้เรียกระบุเวอร์ชันมาเองได้ (คำถามที่อ้างหลายเวอร์ชัน/หลายหลักสูตร)
+    version_ids = list(version_ids or [])
+    if program and not version_ids:
         if year:
             rows = conn.execute(
                 "SELECT version_id FROM curriculum_version WHERE program=? AND curriculum_year=?",

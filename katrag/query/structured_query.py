@@ -68,6 +68,41 @@ def detect_semester(question: str) -> int | None:
     return None
 
 
+_CURRICULUM_YEAR_RE = re.compile(r"(?<!\d)(25[5-7]\d)(?!\d)")
+
+
+def detect_versions(conn: sqlite3.Connection, question: str) -> list[tuple[int, str, int]]:
+    """หาเวอร์ชันหลักสูตรที่คำถามระบุชัด เช่น "DSBA 2560 กับ 2565", "AIT 2566 กับ IT 2565".
+
+    ปีแต่ละตัวผูกกับชื่อหลักสูตรที่อยู่ก่อนหน้าใกล้สุด (ถ้าไม่มีใช้หลักสูตรของคำถาม)
+    คืนเฉพาะคู่ (หลักสูตร, ปี) ที่มีอยู่จริงในฐานข้อมูล เรียงตามลำดับที่ปรากฏ
+    """
+    upper = question.upper()
+    prog_pos: list[tuple[int, str]] = []
+    for code in PROGRAM_CODES:
+        for m in re.finditer(rf"(?<![A-Z]){re.escape(code)}(?![A-Z])", upper):
+            prog_pos.append((m.start(), code))
+    prog_pos.sort()
+    default = detect_program(question)
+
+    found: list[tuple[int, str, int]] = []
+    seen: set[int] = set()
+    for m in _CURRICULUM_YEAR_RE.finditer(question):
+        year = int(m.group(1))
+        before = [code for pos, code in prog_pos if pos < m.start()]
+        program = before[-1] if before else default
+        if not program:
+            continue
+        row = conn.execute(
+            "SELECT version_id FROM curriculum_version WHERE program=? AND curriculum_year=?",
+            (program, year),
+        ).fetchone()
+        if row and row[0] not in seen:
+            seen.add(row[0])
+            found.append((row[0], program, year))
+    return found
+
+
 def _resolve_version_id(conn: sqlite3.Connection, program: str, year_be: int | None) -> tuple[int, str] | None:
     conn.row_factory = sqlite3.Row
     if year_be:
@@ -478,7 +513,7 @@ def try_prerequisite(
                 direct_matched.append((len(nth), c))
             elif len(nen) >= 4 and nen in q.lower():
                 direct_matched.append((len(nen), c))
-            elif any(sub in q.lower() for sub in ["data warehouse", "warehouse"]) and "warehouse" in nen:
+            elif any(sub in q.lower() for sub in ["data warehouse", "warehouse"]) and "warehous" in nen:
                 direct_matched.append((15, c))
 
         if direct_matched:
@@ -488,7 +523,9 @@ def try_prerequisite(
     keywords = []
     if not rows:
         # ดึง keyword ชื่อวิชาจากคำถาม (คำไทยยาว ≥ 3 + อังกฤษ ≥ 3)
-        stop = {"ต้องผ่าน", "วิชา", "บังคับก่อน", "ต้องเรียน", "ก่อนถึงจะลง", "อะไร", "ใดบ้าง", "หลักสูตร"}
+        stop = {"ต้องผ่าน", "วิชา", "บังคับก่อน", "ต้องเรียน", "ก่อนถึงจะลง", "อะไร", "ใดบ้าง", "หลักสูตร",
+                # คำเชื่อมสั้น ๆ ทำให้วิชาที่ไม่เกี่ยวได้คะแนนเท่ากัน (เช่น "และ" ในชื่อโครงงาน)
+                "และ", "หรือ", "กับ", "ของ", "ที่"}
         q_markers = ("ต้อง", "ก่อน", "อะไร", "ใดบ้าง", "ได้บ้าง", "หรือไม่", "จะลง")
         q_clean = re.sub(r"(?:ราย)?วิชา\s*", " ", q)
         tokens = re.findall(r"[ก-๙]{3,}|[A-Za-z]{3,}", q_clean)
@@ -596,6 +633,7 @@ def try_prerequisite(
                     lines.append(
                         f"    • {pc} {pr['name_th']}{pen} — {pr['credits_raw']} | {_plan(pr)}"
                     )
+                    lines.extend(_prereq_chain_lines(conn, pc, r["version_id"], depth=1))
                 else:
                     lines.append(f"    • {pc} (ไม่พบชื่อวิชาในฐานข้อมูล)")
         else:
@@ -620,6 +658,34 @@ def try_prerequisite(
         codes=answer_codes,
         version_id=rows[0]["version_id"] if rows else None,
     )
+
+
+def _prereq_chain_lines(
+    conn: sqlite3.Connection, code: str, version_id: int, *, depth: int,
+    seen: set[str] | None = None, max_depth: int = 4,
+) -> list[str]:
+    """ไล่วิชาบังคับก่อนของวิชาบังคับก่อนต่อไปเรื่อย ๆ (กัน loop และจำกัดความลึก)."""
+    import json
+    seen = set(seen or ()) | {code}
+    row = conn.execute(
+        "SELECT prerequisite_json FROM course WHERE code=? AND version_id=? LIMIT 1",
+        (code, version_id),
+    ).fetchone()
+    if row is None or depth >= max_depth:
+        return []
+    out: list[str] = []
+    indent = "    " + "  " * depth
+    for pc in json.loads(row[0] or "[]"):
+        if pc in seen:
+            continue
+        pr = conn.execute(
+            "SELECT name_th, name_en FROM course WHERE code=? AND version_id=? LIMIT 1",
+            (pc, version_id),
+        ).fetchone()
+        name = f"{pr[0]} ({pr[1]})" if pr and pr[1] else (pr[0] if pr else "(ไม่พบชื่อวิชา)")
+        out.append(f"{indent}↳ ต้องผ่าน {pc} {name} ก่อน")
+        out.extend(_prereq_chain_lines(conn, pc, version_id, depth=depth + 1, seen=seen))
+    return out
 
 
 def detect_plan_summary_intent(question: str) -> bool:
@@ -764,6 +830,84 @@ def _format_early_grad(
     return StructuredResult(True, "\n".join(lines), version_label, "plan_summary")
 
 
+_TOTAL_CREDIT_KW = (
+    "หน่วยกิตรวม", "ตลอดหลักสูตร", "ต้องเรียนกี่หน่วยกิต", "ต้องเรียนหน่วยกิต", "หน่วยกิตที่เรียน",
+)
+#: ถ้าคำถามถามเรื่องอื่นปนด้วย (แขนง/แผน/โครงสร้าง) ให้ LLM เรียบเรียงต่อ ไม่ตอบตรง
+_OTHER_ASPECT_KW = ("แขนง", "แผน", "โครงสร้าง", "อย่างไร", "รายวิชา", "โมดูล")
+
+
+def detect_credit_compare_intent(conn: sqlite3.Connection, question: str) -> bool:
+    """ถามหน่วยกิตรวมของหลักสูตร โดยระบุตั้งแต่ 2 เวอร์ชันขึ้นไป."""
+    if not any(k in question for k in _TOTAL_CREDIT_KW):
+        return False
+    return len(detect_versions(conn, question)) >= 2
+
+
+def try_credit_compare(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """เทียบหน่วยกิตรวมตลอดหลักสูตรของหลายเวอร์ชัน จากตาราง rule (มี provenance).
+
+    ถ้าเวอร์ชันใดไม่มีค่าในตาราง จะไม่ตอบ (ปล่อยให้ไป retrieval) แทนการเดา
+    """
+    versions = detect_versions(conn, question)
+    if len(versions) < 2 or not any(k in question for k in _TOTAL_CREDIT_KW):
+        return StructuredResult(False, "", "", "none")
+
+    facts: list[tuple[str, float, int]] = []  # (label, credits, page)
+    for version_id, program, year in versions:
+        row = conn.execute(
+            "SELECT r.value_numeric, p.page_number FROM rule r "
+            "JOIN provenance p ON p.provenance_id = r.provenance_id "
+            "WHERE r.version_id=? AND r.rule_kind='graduation' AND r.attribute='min_total_credits'",
+            (version_id,),
+        ).fetchone()
+        if row is None:
+            return StructuredResult(False, "", "", "none")
+        facts.append((f"{program} {year}", row[0], row[1]))
+
+    lines = ["หน่วยกิตรวมตลอดหลักสูตร (จากหน้าโครงสร้างหลักสูตรในเล่ม):"]
+    for label, credits, page in facts:
+        lines.append(f"- {label}: {credits:g} หน่วยกิต (มคอ.2 {label} หน้า {page})")
+
+    if len(facts) == 2:
+        a, b = facts[0][1], facts[1][1]
+        if a == b:
+            lines.append(f"\nสรุป: เท่ากัน ({a:g} หน่วยกิต)")
+        else:
+            more, less = (facts[0], facts[1]) if a > b else (facts[1], facts[0])
+            lines.append(f"\nสรุป: {more[0]} มากกว่า {less[0]} อยู่ {abs(a - b):g} หน่วยกิต")
+    else:
+        top = max(f[1] for f in facts)
+        low = min(f[1] for f in facts)
+        tops = ", ".join(f[0] for f in facts if f[1] == top)
+        lows = ", ".join(f[0] for f in facts if f[1] == low)
+        lines.append(f"\nสรุป: มากที่สุดคือ {tops} ({top:g} หน่วยกิต) น้อยที่สุดคือ {lows} ({low:g} หน่วยกิต)")
+
+    intent = "credit_compare_mixed" if any(k in question for k in _OTHER_ASPECT_KW) else "credit_compare"
+    return StructuredResult(
+        True, "\n".join(lines), " vs ".join(f[0] for f in facts), intent,
+        version_id=versions[0][0],
+    )
+
+
+def asks_about_courses(question: str) -> bool:
+    """คำถามเทียบเวอร์ชันที่ถามเรื่องรายวิชา (ไม่ใช่หน่วยกิตรวม/แผน/โครงสร้าง)."""
+    if any(k in question for k in _TOTAL_CREDIT_KW):
+        return False
+    return "วิชา" in question
+
+
+_VERSION_WORDS = ("เก่า", "ใหม่", "ฉบับเดิม", "ฉบับก่อน")
+_SET_DIFF_WORDS = ("แต่ไม่มี", "ไม่มีใน", "ไม่อยู่ใน", "ที่หาย", "ที่ตัด", "ที่เพิ่ม", "หายไป", "เพิ่มเข้ามา")
+
+
+def compares_versions(conn: sqlite3.Connection, question: str) -> bool:
+    """คำถามเทียบ "เวอร์ชันหลักสูตร" จริง ไม่ใช่เทียบแผนภายในเวอร์ชันเดียว (เช่น แผนปกติ vs สหกิจ)."""
+    if len(detect_versions(conn, question)) >= 2:
+        return True
+    return any(w in question for w in _VERSION_WORDS + _SET_DIFF_WORDS)
+
+
 def detect_cross_version_intent(question: str) -> bool:
     """ตรวจว่าเป็นคำถามเทียบหลักสูตรเก่า-ใหม่.
 
@@ -812,6 +956,12 @@ def try_cross_version_diff(conn: sqlite3.Connection, question: str) -> Structure
     ).fetchall()
     old_v = next((v for v in vers if v["edition_status"] == "old"), None)
     new_v = next((v for v in vers if v["edition_status"] == "current"), None)
+    # ถ้าคำถามระบุปีของหลักสูตรนี้ 2 ปีชัดเจน ใช้ตามนั้น (เช่น IT 2563 กับ 2568)
+    named = [v for v in detect_versions(conn, question) if v[1] == program]
+    if len(named) >= 2:
+        by_id = {v["version_id"]: v for v in vers}
+        pair = sorted((by_id[n[0]] for n in named[:2]), key=lambda v: v["curriculum_year"])
+        old_v, new_v = pair[0], pair[1]
     if not old_v or not new_v:
         return StructuredResult(False, "", "", "none")
 
@@ -1005,7 +1155,7 @@ def try_rule_answer(conn: sqlite3.Connection, question: str) -> StructuredResult
     lines = [f"{label} ({program}):"]
     for r in rows:
         attr_label = _ATTRIBUTE_LABEL.get(r["attribute"], r["attribute"])
-        value = r["value_numeric"] if r["value_numeric"] is not None else r["value_text"]
+        value = f"{r['value_numeric']:g}" if r["value_numeric"] is not None else r["value_text"]
         lines.append(f"  - {attr_label} {r['comparator']} {value}")
 
     return StructuredResult(

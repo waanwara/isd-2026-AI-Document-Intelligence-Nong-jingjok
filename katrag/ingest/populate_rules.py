@@ -1,6 +1,8 @@
 """Populate ตาราง `rule` (เกณฑ์สำเร็จการศึกษา/เกียรตินิยม) จาก provenance จริงในเล่ม.
 
-ทำไมมีแค่ 2 rows (IT graduation, AIT graduation)
+ตอนแรกมีแค่ 2 rows (IT graduation, AIT graduation) ด้วยเหตุผลด้านล่าง ภายหลังพบว่า
+DSBA/BIT มีวลี "จำนวนหน่วยกิตที่เรียนตลอดหลักสูตร" พร้อมตัวเลขในเล่มจริง จึงเพิ่ม
+หน่วยกิตรวมของทุกหลักสูตรปริญญาตรี รวมฉบับเก่า (ดู SEEDS) — เกณฑ์อื่นยังเหมือนเดิม
 --------------------------------------------------------------
 `rules_ground_truth.json` (จากอาจารย์) มีทั้ง 4 หลักสูตร แต่เล่ม มคอ.2 ที่ ingest
 เข้าระบบจริงมีตัวเลขกฎอยู่ในเนื้อหา *ไม่ครบทุกหลักสูตรและไม่ครบทุก category*:
@@ -53,6 +55,9 @@ class RuleSeed:
     # ต้องเจอ *ทั้งหมด* ใน chunk เดียวกัน (AND) เพราะข้อความจริงมี \n / เว้นวรรค
     # หลายจุดคั่นระหว่างวลีกับตัวเลข ทำให้ LIKE '%A%B%' ตัวเดียวไม่ match ข้าม \n
     provenance_keywords: tuple[str, ...]
+    # ปีหลักสูตรที่ต้องการ (None = เวอร์ชัน current ที่มีวิชามากสุด)
+    # ใช้กับฉบับเก่า เพื่อให้เทียบหน่วยกิตรวมข้ามเวอร์ชันได้
+    year: int | None = None
 
 
 # ยืนยันด้วยการอ่าน chunk จริงแล้วว่าตัวเลขปรากฏในเนื้อหา ไม่ใช่แค่ GT ลอย ๆ
@@ -66,6 +71,36 @@ SEEDS: tuple[RuleSeed, ...] = (
         program="AIT", rule_kind="graduation", attribute="min_total_credits",
         comparator=">=", value_numeric=120.0,
         provenance_keywords=("จำนวนหน่วยกิตที่เรียนตลอดหลักสูตร", "120"),
+    ),
+    # หน่วยกิตรวมตลอดหลักสูตรของเวอร์ชันอื่น (เพิ่ม ต.ค. 2569) — ทุกค่าอ่านจากเล่ม
+    # (หน้าโครงสร้างหลักสูตร) และ provenance ต้องหา chunk ที่มีวลี + ตัวเลขนั้นจริง
+    # ฉบับปัจจุบันของ DSBA (132) และ BIT (126) ตรงกับ rules_ground_truth.json ด้วย
+    # ฉบับเก่า (IT 2560 = 130, DSBA 2560 = 126, BIT 2560 = 126) ไม่มี GT ยืนยัน
+    # มีแต่หลักฐานในเล่ม (DSBA/BIT 2560 หน้า 17, IT 2560 หน้า 18)
+    RuleSeed(
+        program="DSBA", rule_kind="graduation", attribute="min_total_credits",
+        comparator=">=", value_numeric=132.0,
+        provenance_keywords=("จำนวนหน่วยกิตที่เรียนตลอดหลักสูตร", "132"),
+    ),
+    RuleSeed(
+        program="BIT", rule_kind="graduation", attribute="min_total_credits",
+        comparator=">=", value_numeric=126.0,
+        provenance_keywords=("จำนวนหน่วยกิตที่เรียนตลอดหลักสูตร", "126"),
+    ),
+    RuleSeed(
+        program="IT", rule_kind="graduation", attribute="min_total_credits",
+        comparator=">=", value_numeric=130.0,
+        provenance_keywords=("หน่วยกิตรวมตลอดหลักสูตร", "130"), year=2560,
+    ),
+    RuleSeed(
+        program="DSBA", rule_kind="graduation", attribute="min_total_credits",
+        comparator=">=", value_numeric=126.0,
+        provenance_keywords=("หน่วยกิตรวมตลอดหลักสูตร", "126"), year=2560,
+    ),
+    RuleSeed(
+        program="BIT", rule_kind="graduation", attribute="min_total_credits",
+        comparator=">=", value_numeric=126.0,
+        provenance_keywords=("หน่วยกิตรวมตลอดหลักสูตร", "126"), year=2560,
     ),
     # หมายเหตุ: ไม่เก็บ honors ของ AIT ทั้งที่เล่มมีตัวเลขจริง (3.55 อันดับ 1,
     # 3.50 อันดับ 2 ที่หัวข้อ 4.9.1/4.9.2) เพราะ rules_ground_truth.json ของ AIT
@@ -124,7 +159,14 @@ def populate(db_path: Path | str) -> dict[str, int]:
     skipped_no_provenance = 0
 
     for seed in SEEDS:
-        version_id = _resolve_current_version(conn, seed.program)
+        if seed.year is not None:
+            row = conn.execute(
+                "SELECT version_id FROM curriculum_version WHERE program=? AND curriculum_year=?",
+                (seed.program, seed.year),
+            ).fetchone()
+            version_id = row[0] if row else None
+        else:
+            version_id = _resolve_current_version(conn, seed.program)
         if version_id is None:
             skipped_no_version += 1
             continue

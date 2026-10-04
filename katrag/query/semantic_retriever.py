@@ -62,6 +62,24 @@ def hybrid_search(
     year = detect_year(question)
     version_filter = (program, year) if program and year else (program, 0) if program else None
 
+    # คำถามที่ระบุเวอร์ชันชัด (เช่น "IT 2563 กับ 2568", "AIT 2566 กับ IT 2565")
+    # ต้องค้นทุกเวอร์ชันนั้น ไม่ใช่แค่เวอร์ชันปัจจุบันของหลักสูตรแรก
+    from katrag.query.structured_query import detect_versions
+
+    named = detect_versions(conn, question)
+    if named:
+        lexical_hits = lexical_search(
+            conn, question, limit=lexical_top_k, version_ids=[v[0] for v in named]
+        )
+        per_version = max(5, dense_top_k // len(named))
+        dense_hits = []
+        for _vid, prog, yr in named:
+            dense_hits.extend(
+                dense_index.search(question, version_filter=(prog, yr), top_k=per_version)
+            )
+        dense_hits.sort(key=lambda h: -h.score)
+        return _fuse(conn, lexical_hits, dense_hits, limit)
+
     # 1. Lexical search
     lexical_hits = lexical_search(conn, question, limit=lexical_top_k)
 
@@ -78,7 +96,16 @@ def hybrid_search(
             dense_filter = (program, ver_row["curriculum_year"])
 
     dense_hits = dense_index.search(question, version_filter=dense_filter, top_k=dense_top_k)
+    return _fuse(conn, lexical_hits, dense_hits, limit)
 
+
+def _fuse(
+    conn: sqlite3.Connection,
+    lexical_hits: Sequence[RetrievedChunk],
+    dense_hits: Sequence[DenseSearchHit],
+    limit: int,
+) -> list[HybridHit]:
+    """รวมผล lexical + dense ด้วย RRF แล้วเติม document_id."""
     # 3. RRF Fusion
     # สร้าง rank map
     lex_rank_map: dict[int, int] = {}
