@@ -1208,51 +1208,17 @@ def try_document_relation(conn: sqlite3.Connection, question: str) -> Structured
         pairs_seen.add(pair_key)
 
         lines.append(f"{idx}. คู่หลักสูตรที่ใช้ไฟล์เอกสารเล่มเดียวกันทุกประการ:")
-        lines.append(f"   - ระดับปริญญาโท: {r['p1']}")
-        lines.append(f"   - ระดับปริญญาเอก: {r['p2']}")
+        lines.append(f"   - ไฟล์ที่ 1: {r['p1']} (ระดับที่ระบบตรวจพบจากเนื้อหา: {r['deg1']})")
+        lines.append(f"   - ไฟล์ที่ 2: {r['p2']} (ระดับที่ระบบตรวจพบจากเนื้อหา: {r['deg2']})")
         lines.append(f"\n   ข้อสังเกตเชิงลึก (Provenance & Cryptographic Hash Verification):")
         lines.append(f"   - ค่า Cryptographic Hash (SHA-256) ตรงกันทุกตัวอักษร: {r['sha1']}")
         lines.append(f"   - ขนาดไฟล์เท่ากันทุกไบต์: {r['s1']:,} ไบต์ และมีจำนวน {r['c1']} หน้าเท่ากัน 100%")
-        if "aitba" in r["p1"].lower():
-            lines.append("   - หน้าปกและเนื้อหาภายในของไฟล์ระดับ ป.เอก ระบุชื่อหลักสูตรเป็น 'หลักสูตรวิทยาศาสตรมหาบัณฑิต' (วท.ม.) เช่นเดียวกับเล่ม ป.โท เนื่องจากผู้จัดทำชุดข้อมูลได้ใช้ไฟล์ของระดับปริญญาโทบรรจุไว้ทั้งสองตำแหน่งตามที่บันทึกไว้ใน readme.txt")
         idx += 1
 
     ans = "\n".join(lines)
     return StructuredResult(
         True, ans, "AITBA 2569", "doc_relation",
         version_id=rows[0]["version_id"] if rows else None,
-    )
-
-
-def detect_plan_branching_intent(question: str) -> bool:
-    """ตรวจคำถามเปรียบเทียบแผนปกติ vs แผนสหกิจศึกษา."""
-    q = question.lower()
-    has_normal = any(w in q for w in ["แผนปกติ", "ไม่ทำสหกิจ", "ไม่เข้าโครงการสหกิจ", "ปกติ", "ไม่ไปสหกิจ", "ไม่เลือกสหกิจ", "โครงงาน"])
-    has_coop = any(w in q for w in ["สหกิจ", "แผนสหกิจ", "สหกิจศึกษา", "co-op", "coop", "cooperative"])
-    has_diff = any(w in q for w in ["เปรียบเทียบ", "ต่างกัน", "แตกต่าง", "ภาคเรียนใด", "วิชาใด", "ต่าง", "เทียบ", "ข้อแตกต่าง", "อะไรบ้าง"])
-    return (has_normal or has_coop) and has_diff
-
-
-def try_plan_branching(conn: sqlite3.Connection, question: str) -> StructuredResult:
-    """เปรียบเทียบแผนปกติ กับ แผนสหกิจศึกษา (Academic Plan Branching)."""
-    if not detect_plan_branching_intent(question):
-        return StructuredResult(False, "", "", "none")
-    program = detect_program(question) or "DSBA"
-
-    ans = (
-        f"การเปรียบเทียบหลักสูตร {program} 2565 แผนปกติ (ไม่ทำสหกิจศึกษา) กับ แผนสหกิจศึกษา (มคอ.2 หน้า 15, 22, 29-30):\n\n"
-        "1. ภาคเรียนที่มีความแตกต่างกัน:\n"
-        "   - แตกต่างกันอย่างชัดเจนใน **ชั้นปีที่ 4 ภาคการศึกษาที่ 2** (ส่วนปีที่ 1 ถึงปีที่ 4 ภาคการศึกษาที่ 1 ทั้งสองแผนเรียนวิชาแกนและวิชาบังคับเหมือนกัน)\n\n"
-        "2. รายวิชาที่มีความแตกต่างกันในภาคเรียนดังกล่าว:\n"
-        "   - **แผนปกติ (ไม่ทำสหกิจศึกษา):** นักศึกษาจะลงเรียนรายวิชาในคณะ รวม 6 หน่วยกิต ได้แก่\n"
-        "     • 06026215 โครงงานวิทยาการข้อมูลและการวิเคราะห์เชิงธุรกิจ 2 (PROJECT IN DATA SCIENCE AND BUSINESS ANALYTICS 2) — 3(0-9-0)\n"
-        "     • วิชาเลือกในกลุ่มวิชาชีพเฉพาะด้าน หรือวิชาเลือกเสรี อีก 1 วิชา — 3 หน่วยกิต\n"
-        "   - **แผนสหกิจศึกษา:** นักศึกษาจะออกไปปฏิบัติงานเต็มเวลา ณ สถานประกอบการเป็นเวลาไม่น้อยกว่า 16 สัปดาห์ (1 ภาคการศึกษาเต็ม) โดยลงทะเบียนเพียงวิชาเดียว:\n"
-        "     • 06026245 สหกิจศึกษา (COOPERATIVE EDUCATION) หรือ 06026250 สหกิจศึกษาต่างประเทศ — จำนวน 6 หน่วยกิต"
-    )
-    return StructuredResult(
-        True, ans, f"{program} 2565 (current)", "plan_branching",
-        codes=["06026215", "06026245"], version_id=5,
     )
 
 
@@ -1266,21 +1232,27 @@ def detect_graduation_audit_intent(question: str) -> bool:
     return has_grad and (has_audit or re.search(r"\d+\s*หน่วยกิต", q) is not None)
 
 
+# เกณฑ์ที่ตรวจทานกับ มคอ.2 โดยตรง (ไม่ใส่ค่าที่ยังไม่ได้ยืนยัน)
+# DSBA 2565: โครงสร้างหลักสูตร หน้า 15 — รวม 132, ศึกษาทั่วไป 30, เฉพาะ 96
+# (กลุ่มวิชาแกน 45 + พื้นฐานวิชาชีพ 33 = 78, กลุ่มวิชาชีพเฉพาะด้าน 12), เลือกเสรี = 132-30-96 = 6
+# หลักสูตรอื่นยังไม่มีค่าที่ยืนยันแล้ว จึงไม่ตอบ (ปล่อยให้ไหลไป rule/retrieval ปกติ)
+VERIFIED_GRAD_RULES = {
+    "DSBA": {"total": 132, "gened": 30, "major": 96, "core": 78, "elective": 12, "free": 6},
+}
+
+
 def try_graduation_audit(conn: sqlite3.Connection, question: str) -> StructuredResult:
-    """ตรวจสอบแผนเรียนของนักศึกษาเทียบกับเกณฑ์การสำเร็จการศึกษาแบบไดนามิก."""
+    """เทียบหน่วยกิตที่ผู้ถามระบุมา กับเกณฑ์ที่ตรวจทานแล้ว (เฉพาะ DSBA 2565).
+
+    ทำงานเมื่อคำถามมีตัวเลขหน่วยกิตของนักศึกษาเท่านั้น ถ้าถามเกณฑ์ทั่วไป ไม่ตอบที่นี่
+    """
     if not detect_graduation_audit_intent(question):
         return StructuredResult(False, "", "", "none")
 
     program = detect_program(question) or "DSBA"
-
-    # กำหนดเกณฑ์ตามหลักสูตร
-    program_rules = {
-        "DSBA": {"total": 132, "gened": 30, "major": 96, "core": 78, "elective": 12, "free": 6},
-        "IT": {"total": 129, "gened": 30, "major": 93, "core": 63, "elective": 30, "free": 6},
-        "BIT": {"total": 120, "gened": 30, "major": 84, "core": 60, "elective": 24, "free": 6},
-        "AIT": {"total": 120, "gened": 30, "major": 84, "core": 60, "elective": 24, "free": 6},
-    }
-    rules = program_rules.get(program, program_rules["DSBA"])
+    rules = VERIFIED_GRAD_RULES.get(program)
+    if rules is None:
+        return StructuredResult(False, "", "", "none")
     req_total = rules["total"]
 
     # สกัดตัวเลขจากคำถามแบบไดนามิก
@@ -1340,91 +1312,11 @@ def try_graduation_audit(conn: sqlite3.Connection, question: str) -> StructuredR
             lines.append(f"\nข้อสรุป: นักศึกษายังไม่สามารถสำเร็จการศึกษาได้{extra_msg}ต้องเก็บหน่วยกิตรวมให้ครบตามเกณฑ์ {req_total} หน่วยกิต")
         else:
             lines.append(f"   - นักศึกษาเก็บได้รวม {student_total} หน่วยกิต เกณฑ์กำหนดไว้ไม่น้อยกว่า {req_total} หน่วยกิต → ครบตามเกณฑ์ขั้นต่ำ")
-            lines.append(f"\nข้อสรุป: นักศึกษาเก็บหน่วยกิตรวมผ่านเกณฑ์ขั้นต่ำ {req_total} หน่วยกิตแล้ว ทั้งนี้ต้องผ่านการประเมินวิชาบังคับทุกวิชาและได้เกรดเฉลี่ยสะสม (GPAX) ไม่ต่ำกว่า 2.00")
+            lines.append(f"\nข้อสรุป: นักศึกษาเก็บหน่วยกิตรวมผ่านเกณฑ์ขั้นต่ำ {req_total} หน่วยกิตแล้ว")
     else:
-        # กรณีถามเกณฑ์ทั่วไป ไม่ได้ระบุหน่วยกิตของนักศึกษา
-        lines.append(f"เกณฑ์การสำเร็จการศึกษาตามโครงสร้างหลักสูตร {program} 2565 กำหนดไว้ดังนี้:")
-        lines.append(f"- จำนวนหน่วยกิตรวมตลอดหลักสูตร: ไม่น้อยกว่า {req_total} หน่วยกิต")
-        lines.append(f"- หมวดวิชาศึกษาทั่วไป: ไม่น้อยกว่า {rules['gened']} หน่วยกิต")
-        lines.append(f"- หมวดวิชาเฉพาะ: ไม่น้อยกว่า {rules['major']} หน่วยกิต (วิชาแกน/บังคับ {rules['core']} หน่วยกิต, วิชาเฉพาะเลือก {rules['elective']} หน่วยกิต)")
-        lines.append(f"- หมวดวิชาเลือกเสรี: ไม่น้อยกว่า {rules['free']} หน่วยกิต")
-        lines.append("- เกรดเฉลี่ยสะสม (GPAX): ไม่ต่ำกว่า 2.00")
+        return StructuredResult(False, "", "", "none")
 
     return StructuredResult(
         True, "\n".join(lines), f"{program} 2565 (current)", "grad_audit",
-        version_id=5 if program == "DSBA" else 7,
+        version_id=5,
     )
-
-
-def detect_cross_version_overview_intent(question: str) -> bool:
-    """ตรวจคำถามเปรียบเทียบภาพรวมหลักสูตรเก่า-ใหม่ (หน่วยกิตรวมและแขนงวิชา)."""
-    q = question.lower()
-    has_compare = any(w in q for w in ["เปรียบเทียบ", "เทียบ", "ต่างกัน", "แตกต่าง", "เปลี่ยน", "ข้อแตกต่าง", "ปรับปรุง", "ต่าง"])
-    years = re.findall(r"25\d{2}", q)
-    has_versions = len(set(years)) >= 2 or ("เก่า" in q and "ใหม่" in q) or ("เดิม" in q and "ปัจจุบัน" in q)
-    has_topic = any(w in q for w in ["โครงสร้าง", "หน่วยกิตรวม", "หน่วยกิต", "แขนง", "โมดูล", "ภาพรวม", "หลักสูตร"])
-    return has_compare and (has_versions or has_topic)
-
-
-def try_cross_version_overview(conn: sqlite3.Connection, question: str) -> StructuredResult:
-    """เปรียบเทียบภาพรวมโครงสร้างหลักสูตร IT 2560 กับ 2565."""
-    if not detect_cross_version_overview_intent(question):
-        return StructuredResult(False, "", "", "none")
-    program = detect_program(question) or "IT"
-
-    ans = (
-        "การเปรียบเทียบหลักสูตร IT 2560 (เล่มเก่า) กับ IT 2565 (เล่มปัจจุบัน):\n\n"
-        "1. การปรับโครงสร้างหน่วยกิตรวมตลอดหลักสูตร:\n"
-        "   - หลักสูตร IT 2560 (เดิม): กำหนดหน่วยกิตรวมตลอดหลักสูตรไว้ **130 หน่วยกิต** (มคอ.2 หน้า 18)\n"
-        "   - หลักสูตร IT 2565 (ปัจจุบัน): ปรับลดหน่วยกิตรวมลงเหลือ **129 หน่วยกิต** (มคอ.2 หน้า 20) ปรับลดลง 1 หน่วยกิตเพื่อเพิ่มความยืดหยุ่นในการเรียน\n\n"
-        "2. การปรับโครงสร้างแขนงวิชาและกลุ่มวิชาเลือก:\n"
-        "   - หลักสูตร IT 2560: จัดแบ่งเป็น 3 แขนงวิชาแบบดั้งเดิมอย่างชัดเจน ได้แก่\n"
-        "     1) วิศวกรรมซอฟต์แวร์ (Software Engineering)\n"
-        "     2) เทคโนโลยีเครือข่ายและระบบ (Network and System Technology)\n"
-        "     3) สื่อประสมและการพัฒนาเกม (Multimedia and Game Development)\n"
-        "   - หลักสูตร IT 2565: ปรับการจัดกลุ่มวิชาใหม่ โดยจัดเป็น 3 กลุ่มวิชาพื้นฐาน และจัดกลุ่มวิชาเลือกเป็น 3 โมดูลอาชีพ (Professional Career Modules) ได้แก่\n"
-        "     • M1: Full-Stack Web Developer\n"
-        "     • M2: Network and System Engineer\n"
-        "     • M3: Game Developer\n"
-        "     โดยเน้นการเรียนรู้แบบบูรณาการตามเส้นทางอาชีพและโครงงานจริง (หน้า 372)"
-    )
-    return StructuredResult(
-        True, ans, f"{program} (2560 vs 2565)", "cross_version_overview",
-        version_id=6,
-    )
-
-
-def detect_elective_credits_intent(question: str) -> bool:
-    """ตรวจคำถามจำนวนหน่วยกิตหมวดวิชาเฉพาะเลือก / วิชาชีพเฉพาะด้าน."""
-    q = question.lower()
-    has_elective = any(w in q for w in [
-        "เฉพาะเลือก", "วิชาเฉพาะเลือก", "หมวดวิชาเฉพาะเลือก", "วิชาชีพเฉพาะด้าน",
-        "วิชาเลือก", "กลุ่มวิชาชีพ", "เลือกเฉพาะสาขา", "แขนง"
-    ])
-    has_credits = any(w in q for w in [
-        "กี่หน่วยกิต", "หน่วยกิตเท่าไร", "หน่วยกิตเท่าไหร่", "จำนวนหน่วยกิต",
-        "ต้องเก็บกี่", "ต้องเรียนกี่", "กี่หน่วย", "เกณฑ์หน่วยกิต"
-    ])
-    return has_elective and has_credits
-
-
-def try_elective_credits(conn: sqlite3.Connection, question: str) -> StructuredResult:
-    """ตอบหน่วยกิตหมวดวิชาเฉพาะเลือก (กลุ่มวิชาชีพเฉพาะด้าน)."""
-    if not detect_elective_credits_intent(question):
-        return StructuredResult(False, "", "", "none")
-    program = detect_program(question) or "DSBA"
-
-    ans = (
-        f"ตามโครงสร้างหลักสูตร {program} 2565 (หน้า 15, 19) หมวดวิชาเฉพาะ (รวม 96 หน่วยกิต) มีข้อกำหนดดังนี้:\n\n"
-        "1. กลุ่มวิชาชีพเฉพาะด้าน (หรือวิชาเฉพาะเลือก): กำหนดให้เก็บ **ไม่น้อยกว่า 12 หน่วยกิต** โดยนักศึกษาต้องเลือกลงทะเบียนเรียนในกลุ่มวิชาชีพเฉพาะด้านกลุ่มใดกลุ่มหนึ่งจาก 3 แขนง ได้แก่:\n"
-        "   - แขนงวิทยาการข้อมูล (Data Science)\n"
-        "   - แขนงการวิเคราะห์เชิงสถิติ (Statistical Analysis)\n"
-        "   - แขนงวิศวกรรมข้อมูล (Data Engineering)\n\n"
-        "2. กลุ่มวิชาการศึกษาทางเลือก: อีก **6 หน่วยกิต** (เช่น โครงการสหกิจศึกษา หรือวิชาเลือกทางเลือก)\n\n"
-        "สรุป: หมวดวิชาเฉพาะเลือก (กลุ่มวิชาชีพเฉพาะด้าน) ต้องเก็บไม่น้อยกว่า **12 หน่วยกิต**"
-    )
-    return StructuredResult(
-        True, ans, f"{program} 2565 (current)", "elective_credits",
-        version_id=5 if program == "DSBA" else 7,
-    )
-

@@ -36,12 +36,9 @@ from katrag.query.semantic_retriever import hybrid_search
 from katrag.query.structured_query import (
     detect_course_code,
     detect_cross_version_intent,
-    detect_cross_version_overview_intent,
     detect_document_relation_intent,
-    detect_elective_credits_intent,
     detect_graduation_audit_intent,
     detect_person_intent,
-    detect_plan_branching_intent,
     detect_plan_summary_intent,
     detect_prerequisite_intent,
     detect_program,
@@ -51,12 +48,9 @@ from katrag.query.structured_query import (
     source_pages_for_codes,
     try_course_code,
     try_cross_version_diff,
-    try_cross_version_overview,
     try_document_relation,
-    try_elective_credits,
     try_graduation_audit,
     try_person_answer,
-    try_plan_branching,
     try_plan_summary,
     try_prerequisite,
     try_program_name,
@@ -87,13 +81,11 @@ MIN_EVIDENCE = 3
 DIRECT_INTENTS = frozenset({
     "year_sem", "all_courses", "plan_summary", "cross_version",
     "topic_courses", "topic_semantic", "prerequisite", "rule", "person",
-    "course_code", "doc_relation", "plan_branching", "grad_audit",
-    "cross_version_overview", "elective_credits",
+    "course_code", "doc_relation", "grad_audit",
 })
 
 ALWAYS_DIRECT_INTENTS = frozenset({
-    "course_code", "doc_relation", "plan_branching", "grad_audit",
-    "cross_version_overview", "elective_credits", "prerequisite",
+    "course_code", "doc_relation", "grad_audit", "prerequisite",
 })
 
 #: คำที่บ่งชี้ว่าเป็นคำถามเชิงวิเคราะห์ (ต้องให้ LLM ให้เหตุผล ไม่ใช่ list ข้อมูล)
@@ -321,31 +313,13 @@ def _dispatch_intent(conn: sqlite3.Connection, question: str):
         if sr.matched:
             return sr
 
-    # 2. เปรียบเทียบแผนสหกิจศึกษา vs แผนปกติ (Academic Plan Branching)
-    if detect_plan_branching_intent(question):
-        sr = try_plan_branching(conn, question)
-        if sr.matched:
-            return sr
-
-    # 3. ตรวจสอบเงื่อนไขจบ/เกณฑ์สำเร็จการศึกษา (Graduation Audit)
+    # 2. ตรวจแผนหน่วยกิตที่ผู้ถามระบุมาเทียบเกณฑ์ที่ยืนยันแล้ว (Graduation Audit)
     if detect_graduation_audit_intent(question):
         sr = try_graduation_audit(conn, question)
         if sr.matched:
             return sr
 
-    # 4. เปรียบเทียบภาพรวมหลักสูตรเก่า-ใหม่ (IT 2560 vs IT 2565 โครงสร้าง+แขนง)
-    if detect_cross_version_overview_intent(question):
-        sr = try_cross_version_overview(conn, question)
-        if sr.matched:
-            return sr
-
-    # 5. จำนวนหน่วยกิตวิชาเฉพาะเลือก / วิชาชีพเฉพาะด้าน (Elective Credits)
-    if detect_elective_credits_intent(question):
-        sr = try_elective_credits(conn, question)
-        if sr.matched:
-            return sr
-
-    # 6. เกณฑ์สำเร็จการศึกษา/เกียรตินิยม — คำเฉพาะเจาะจง เช็กก่อน intent อื่นได้
+    # 3. เกณฑ์สำเร็จการศึกษา/เกียรตินิยม — คำเฉพาะเจาะจง เช็กก่อน intent อื่นได้
     if detect_rule_intent(question) is not None:
         sr = try_rule_answer(conn, question)
         if sr.matched:

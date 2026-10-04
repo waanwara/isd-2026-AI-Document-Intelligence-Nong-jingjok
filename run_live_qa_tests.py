@@ -402,7 +402,7 @@ def verdict_style(cell, v):
         cell.fill, cell.font = fill_pass, font_pass
     elif v == "ถูกบางส่วน":
         cell.fill, cell.font = fill_warn, font_warn
-    elif v == "ผิด":
+    elif v in ("ผิด", "ไม่ตรงเฉลย"):
         cell.fill, cell.font = fill_bad, font_bad
     else:
         cell.fill, cell.font = fill_sub, font_bold
@@ -412,7 +412,7 @@ n_total = len(live_results)
 n_kw = sum(1 for r in live_results if r["kw"] == "PASS")
 n_full = sum(1 for r in live_results if r["verdict"] == "ถูกครบ")
 n_part = sum(1 for r in live_results if r["verdict"] == "ถูกบางส่วน")
-n_wrong = sum(1 for r in live_results if r["verdict"] == "ผิด")
+n_wrong = sum(1 for r in live_results if r["verdict"] in ("ผิด", "ไม่ตรงเฉลย"))
 n_unrev = sum(1 for r in live_results if r["verdict"] == "ยังไม่ได้ตรวจ")
 times = [r["latency_val"] for r in live_results]
 n_hard = [r["id"] for r in live_results if r["path_kind"] == "hardcoded"]
@@ -432,7 +432,7 @@ meta = [
     ("ข้อมูล:", "14 เล่มหลักสูตร (3,689 หน้า, 1,419 รายวิชา)"),
     ("จำนวนข้อทดสอบ:", f"{n_total} ข้อ (E1–E9, M1–M9, H1–H7, C1–C3)"),
     ("ตรวจคำสำคัญ (auto):", f"{n_kw}/{n_total} ข้อ — เกณฑ์หลวม (บางข้อตรวจแค่มีตัวเลข) ไม่ใช่การยืนยันว่าถูก"),
-    ("ตรวจโดยคน (เทียบเฉลย):", f"ถูกครบ {n_full} · ถูกบางส่วน {n_part} · ผิด {n_wrong} · ยังไม่ได้ตรวจ {n_unrev}"),
+    ("ตรวจโดยคน (เทียบเฉลย):", f"ถูกครบ {n_full} · ถูกบางส่วน {n_part} · ผิด/ไม่ตรงเฉลย {n_wrong} · ยังไม่ได้ตรวจ {n_unrev}"),
     ("เวลาตอบ:", f"เฉลี่ย {sum(times)/n_total:.2f}s · เร็วสุด {min(times):.2f}s · ช้าสุด {max(times):.2f}s · ต่ำกว่า 5s {sum(t < 5 for t in times)}/{n_total} ข้อ"),
     ("วิธีตรวจโดยคน:", REVIEW_META.get("method", "-") + f" · ตรวจเมื่อ {REVIEW_META.get('reviewed_on', '-')}"),
 ]
@@ -444,7 +444,7 @@ for idx, (k, v) in enumerate(meta, start=4):
 
 start_row = 15
 ws.cell(row=start_row - 1, column=1, value="สรุปแยกตามระดับความยาก").font = font_section
-hdr = ["ระดับ", "จำนวนข้อ", "ตรวจคำสำคัญผ่าน", "ถูกครบ (คนตรวจ)", "ถูกบางส่วน", "ผิด", "เวลาเฉลี่ย (s)", "เวลาช้าสุด (s)"]
+hdr = ["ระดับ", "จำนวนข้อ", "ตรวจคำสำคัญผ่าน", "ถูกครบ (คนตรวจ)", "ถูกบางส่วน", "ผิด / ไม่ตรงเฉลย", "เวลาเฉลี่ย (s)", "เวลาช้าสุด (s)"]
 for ci, h in enumerate(hdr, start=1):
     c = ws.cell(row=start_row, column=ci, value=h)
     c.font, c.fill, c.alignment = font_header, fill_header, align_center
@@ -452,7 +452,7 @@ rows_out = []
 for key, label in LEVELS:
     g = by_level(key)
     rows_out.append((label, len(g), sum(r["kw"] == "PASS" for r in g), sum(r["verdict"] == "ถูกครบ" for r in g),
-                     sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] == "ผิด" for r in g),
+                     sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in g),
                      f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
 rows_out.append(("รวม", n_total, n_kw, n_full, n_part, n_wrong, f"{sum(times)/n_total:.2f}", f"{max(times):.2f}"))
 for ro, row in enumerate(rows_out, start=1):
@@ -470,7 +470,8 @@ notes = [
     "1) 'ตรวจคำสำคัญ' ผ่านง่าย (เช่น E2 ตรวจแค่มีเลข 3) จึงไม่ควรใช้เป็นอัตราความถูกต้อง ให้ดูคอลัมน์ 'ตรวจโดยคน'",
     "2) ผลตรวจโดยคนอ่านเทียบเฉลยในไฟล์นี้ ไม่ได้เทียบกับ PDF ต้นฉบับโดยตรง และผูกกับคำตอบรอบที่ตรวจ (คำถามเชิงเหตุผลเรียก LLM คำตอบเปลี่ยนได้ทุกรอบ)",
     "3) ความถูกต้องของ citation ไม่ได้ตรวจรายข้อในไฟล์นี้ วัดแยกด้วย python -m katrag.eval.qa_eval (19 ข้อ): precision 0.57, recall 0.53",
-    f"4) ข้อ {', '.join(n_hard)} ตอบด้วยข้อความสำเร็จรูปที่เขียนไว้ในโค้ด (structured_query.py) ไม่ได้ดึงจากฐานข้อมูลตอนถาม จึงไม่ควรใช้เป็นหลักฐานว่าระบบสกัดข้อมูลเหล่านั้นได้เอง",
+    "4) คำตอบสำเร็จรูปที่เคยเขียนไว้ในโค้ดสำหรับ M8, H5, C1, C3 ถูกถอดออกแล้ว ผลในไฟล์นี้จึงมาจาก pipeline จริง (ฐานข้อมูล / retrieval + LLM) ผลของ C1 และ C3 จึงไม่ดี ซึ่งตรงกับที่ระบบทำได้จริง",
+    "4.1) ข้อที่เรียก LLM ตอบไม่เหมือนเดิมทุกรอบ เช่น M8 รันซ้ำ 8 ครั้งพบเลข 12 ในคำตอบ 5 ครั้ง; H5 พบ 8 ครั้งจาก 8",
     "5) คอลัมน์ 'เส้นทางประมวลผล' ได้จากการ trace โค้ด pipeline (นับว่ามีการเรียก LLM หรือไม่) ไม่ใช่ข้อมูลที่ API ส่งกลับมา",
     "6) เฉลยข้อ H4 เดิมเขียน 48 วิชา แต่ฐานข้อมูลปัจจุบันให้ 52 (DSBA 2560 71 ชื่อ / 2565 75 ชื่อ) ผลของระบบตรงกับฐานข้อมูล",
 ]
@@ -537,7 +538,7 @@ crit_rows = [
     ("1. ระดับ 4 ท้าทาย (Multi-hop & Cross-version)",
      "สกัดเล่มหลายเวอร์ชัน เชื่อมโยงข้อมูลหลายจุด และอ้างอิงหน้า/ข้อในเล่มได้ถูกต้อง",
      c_lines,
-     "C1 และ C3 ตอบด้วยข้อความสำเร็จรูปในโค้ด; C2 ดึงจากตาราง document_relation แต่ป้าย ป.โท/ป.เอก สลับ; C1 ส่วนแขนงวิชายังไม่ได้ยืนยันกับ PDF"),
+     "C1: ตัวเลขหน่วยกิตรวมที่ LLM เรียบเรียงผิด/ขัดกันเอง; C3: ไม่ตรงเฉลย (ยังไม่ได้ยืนยันกับ PDF ว่าฝั่งไหนถูก) เพราะ intent เทียบเวอร์ชันถูกจับผิดประเภท; C2: ดึงจากตาราง document_relation ถูกต้อง"),
     ("2. ความเร็ว (Latency)",
      "ตอบ 1 คำถามระดับยากภายใน < 5 วินาที (รวม retrieval + generate)",
      f"ระดับยาก {len(hard_t)} ข้อ เฉลี่ย {sum(hard_t)/len(hard_t):.2f}s ช้าสุด {max(hard_t):.2f}s · ทั้ง {n_total} ข้อ ต่ำกว่า 5s {sum(t < 5 for t in times)}/{n_total}",
