@@ -1,0 +1,24 @@
+# Jingjok-Thorius — runtime dependencies (Python 3.11)
+# ติดตั้งด้วย: pip install -r requirements.txt
+
+# ── Web server ──
+fastapi>=0.115,<1
+uvicorn>=0.30
+pydantic>=2.9,<3
+python-dotenv>=1.0
+
+# ── LLM (Typhoon ผ่าน OpenAI-compatible API) ──
+openai>=1.40
+
+# ── Retrieval / ข้อมูล ──
+numpy>=1.26
+pythainlp>=5.0
+pymupdf>=1.24
+psutil>=5.9
+
+# ── ใช้เฉพาะตอนรันสคริปต์ทดสอบ run_live_qa_tests.py ──
+openpyxl>=3.1
+
+# ── (ไม่บังคับ) semantic search ด้วย bge-m3 ──
+# ถ้าไม่ติดตั้ง ระบบจะถอยไปใช้ lexical search (FTS5) อัตโนมัติ
+# ติดตั้งเพิ่ม: pip install torch transformers

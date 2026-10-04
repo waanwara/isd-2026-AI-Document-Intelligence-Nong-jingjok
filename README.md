@@ -318,37 +318,39 @@
 ## 🚀 ส่วนที่ 4: การติดตั้งและเริ่มต้นใช้งาน (Installation & Setup)
 
 ### 4.1 ข้อกำหนดระบบ (Prerequisites)
-- **Python:** 3.10 ขึ้นไป (แนะนำ Python 3.11)
-- **OS:** Windows 10/11, macOS หรือ Linux
-- เบราว์เซอร์สมัยใหม่ (Google Chrome, Microsoft Edge, Firefox, Safari)
+- **Python 3.11** (โปรเจกต์กำหนด `>=3.11,<3.12`)
+- **OS:** Windows 10/11 (`start.bat` ใช้ได้เฉพาะ Windows; macOS/Linux ใช้วิธีที่ 2 ในหัวข้อ 4.4)
+- เบราว์เซอร์สมัยใหม่ (Chrome, Edge, Firefox, Safari)
+- **อินเทอร์เน็ต** สำหรับเรียก Typhoon LLM (ดูหัวข้อ 4.3)
 
-### 4.2 การตั้งค่า Environment Variables (`.example.env`)
-โครงการมีไฟล์แม่แบบตัวแปรสภาพแวดล้อมจัดเตรียมไว้ให้ชื่อ [`.example.env`](.example.env):
-
+### 4.2 ติดตั้ง Dependencies
 ```bash
-# คัดลอกไฟล์ .example.env เป็น .env
-copy .example.env .env
+pip install -r requirements.txt
 ```
+> **(ไม่บังคับ) Semantic search:** ติดตั้ง `pip install torch transformers` เพิ่มเพื่อใช้ bge-m3 (ดาวน์โหลดโมเดล `BAAI/bge-m3` หลาย GB ครั้งแรกที่ใช้งาน)
+> หากไม่ติดตั้ง ระบบจะถอยไปใช้ lexical search (FTS5) อัตโนมัติ และยังตอบคำถามจากตาราง SQL ได้ตามปกติ
 
-**เนื้อหาภายในไฟล์ `.env`:**
+### 4.3 ตั้งค่า Environment Variables
+```bash
+copy .example.env .env      # Windows (start.bat ทำให้อัตโนมัติถ้ายังไม่มี .env)
+```
+แก้ไฟล์ `.env`:
 ```env
-# Google Gemini API Key (สำหรับ RAG Synthesis)
-GEMINI_API_KEY=your_gemini_api_key_here
-
-# Typhoon API Key (โมเดล LLM ภาษาไทยหลักจาก SCB 10X)
 TYPHOON_API_KEY=your_typhoon_api_key_here
-
-# ข้ามการโหลดโมเดล embedding ขนาดใหญ่ตอนเริ่มต้น เพื่อให้เปิดเซิร์ฟเวอร์ได้ทันที (1 = เปิดใช้งานข้าม warmup)
 KATRAG_SKIP_WARMUP=1
 ```
+- `TYPHOON_API_KEY` — สมัครฟรีที่ https://opentyphoon.ai ใช้สำหรับคำถามเชิงวิเคราะห์ ("ได้ไหม/ทำไม/แนะนำ")
+  ถ้าไม่ใส่ ระบบยังตอบคำถามที่มาจากตารางฐานข้อมูล (รายวิชา แผนการเรียน prerequisite เกณฑ์จบ) ได้ แต่คำถามเชิงวิเคราะห์จะคืนหลักฐานดิบแทนคำตอบสรุป
+- `KATRAG_SKIP_WARMUP=1` — ข้ามการโหลดโมเดล embedding ตอนเปิดเซิร์ฟเวอร์ ให้ขึ้นเร็ว
 
-### 4.3 การติดตั้ง Dependencies
+> หมายเหตุ: ส่วนค้นหาและฐานข้อมูลทำงานในเครื่อง (net guard ใช้กับขั้น ingest/index) แต่การสรุปคำตอบด้วย LLM เรียก Typhoon API ผ่านอินเทอร์เน็ต
+
+### 4.3.1 ฐานข้อมูล (ไม่ต้องทำเอง)
+ฐานข้อมูล (provenance store + embeddings) ถูกบีบอัดไว้ใน repo ที่ `artifacts/katrag.sqlite3.gz` (~63 MB)
+`start.bat` จะแตกเป็น `artifacts/katrag.sqlite3` (~110 MB) ให้อัตโนมัติในการรันครั้งแรก
+หากรันด้วยวิธีอื่น (macOS/Linux หรือ uvicorn โดยตรง) ให้สั่งก่อนหนึ่งครั้ง:
 ```bash
-# ติดตั้ง dependencies ที่จำเป็นสำหรับ FastAPI และ Web Server
-pip install fastapi uvicorn pydantic python-dotenv
-
-# หากต้องการใช้งานระบบ Dense Embedding / Torch แนะนำให้ใช้ NumPy < 2
-pip install "numpy<2"
+python setup_db.py
 ```
 
 ### 4.4 การสั่งรันเซิร์ฟเวอร์ (Start Server)
@@ -419,7 +421,7 @@ katrag serve
 1. **Static Files Serving:** FastAPI ให้บริการไฟล์ Static ในโฟลเดอร์ `web/` โดยอัตโนมัติที่รูท URL `/`
 2. **Provenance Store (SQLite):** ฐานข้อมูลจัดเก็บโครงสร้างรายวิชา แผนการศึกษา และข้อมูล Bounding Box พิกัดบนหน้าเอกสาร
 3. **Hybrid Search & Structured SQL:** ตอบคำถามเกี่ยวกับโครงสร้างหลักสูตรและวิชาด้วยการ Query ตาราง SQLite เพื่อความแม่นยำ 100% พร้อม Fallback ไปยัง FTS5 Lexical Search
-4. **Offline Net Guard:** โมเดลทำงานปลอดภัยและป้องกันข้อมูลรั่วไหล โดยสกัดกั้นการเชื่อมต่อที่ไม่ได้รับอนุญาตที่ระดับ Socket Layer
+4. **Net Guard:** ขั้น ingest/index ถูกกันไม่ให้เชื่อมต่อเครือข่ายที่ระดับ Socket (`katrag.common.net_guard`) ส่วนการสรุปคำตอบด้วย LLM เรียก Typhoon API ผ่านอินเทอร์เน็ต
 
 ---
 
@@ -449,5 +451,5 @@ katrag serve
 ### 7.3 คำสั่งรันการทดสอบใหม่ด้วยตนเอง (Automated Test Runner)
 เมื่อเปิดเซิร์ฟเวอร์แล้ว สามารถรันชุดทดสอบ 28 ข้อเพื่อสร้างและอัปเดตไฟล์ Excel ได้ทันที:
 ```bash
-py -3.10 run_live_qa_tests.py
+python run_live_qa_tests.py
 ```

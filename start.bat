@@ -29,8 +29,15 @@ set KATRAG_SKIP_WARMUP=1
 :: 3. ตรวจสอบคำสั่ง python
 where python >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] ไม่พบ Python ในระบบ! กรุณาติดตั้ง Python 3.10 ขึ้นไป และเพิ่มลงใน PATH
+    echo [ERROR] ไม่พบ Python ในระบบ! กรุณาติดตั้ง Python 3.11 และเพิ่มลงใน PATH
     echo.
+    pause
+    exit /b 1
+)
+
+:: 3.5 แตกไฟล์ฐานข้อมูลครั้งแรก (artifacts/katrag.sqlite3.gz -> katrag.sqlite3)
+python setup_db.py
+if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
