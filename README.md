@@ -389,7 +389,7 @@ katrag serve
 | **4. style.css** | [`web/style.css`](web/style.css) | ไฟล์สไตล์ลิ่ง CSS และ Custom Glassmorphism Theme | ✅ ครบถ้วน |
 | **5. app.js** | [`web/app.js`](web/app.js) | ไฟล์สคริปต์ Frontend จัดการ `fetch()`, 4 สถานะ, Clean Citation Chips และ DOM Manipulation | ✅ ครบถ้วน |
 | **6. .example.env** | [`.example.env`](.example.env) (และ [`.env.example`](.env.example)) | ไฟล์เทมเพลตตัวแปรสภาพแวดล้อม พร้อมคำอธิบายการใช้งาน | ✅ ครบถ้วน |
-| **7. รายงานผลทดสอบ 28 ข้อ** | [`docs/tester.xlsx`](docs/tester.xlsx) | ไฟล์ Excel รายงานผลการทดสอบระบบ 28 ข้อสดๆ ครบทั้งคำตอบ, Citation สะอาด และเวลา Latency | ✅ ผ่าน 100% |
+| **7. รายงานผลทดสอบ 28 ข้อ** | [`docs/tester.xlsx`](docs/tester.xlsx) | ไฟล์ Excel รายงานผลการทดสอบ 28 ข้อ: คำตอบจริง, ผลตรวจคำสำคัญ, ผลตรวจโดยคน, เส้นทางประมวลผล และเวลา | ถูกครบ 25/28 (ดูหัวข้อ 7) |
 | **8. สคริปต์ทดสอบอัตโนมัติ** | [`run_live_qa_tests.py`](run_live_qa_tests.py) | สคริปต์รัน Benchmark อัตโนมัติ 28 ข้อ ยิงเข้า `/ask` และสร้างรายงานลง Excel ทันที | ✅ ครบถ้วน |
 
 ---
