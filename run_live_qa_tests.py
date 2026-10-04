@@ -359,6 +359,40 @@ with open("docs/live_results_cache.json", "w", encoding="utf-8") as f:
 
 print("\nAll queries finished. Generating docs/tester.xlsx ...")
 
+# Extended challenge set: recorded run (not re-run here), every question reported.
+EXT_PATH = Path("docs/challenge_extended.json")
+EXT_PATHS = {
+    "credit_compare": ("เทียบหน่วยกิตรวมจากตาราง rule (มี provenance) — ไม่ผ่าน LLM", "sql"),
+    "prerequisite": ("Structured SQL (prerequisite) — ไม่ผ่าน LLM", "sql"),
+}
+ext_meta, ext_results = {}, []
+if EXT_PATH.exists():
+    ext = json.loads(EXT_PATH.read_text(encoding="utf-8"))
+    ext_meta = ext["_meta"]
+    for it in ext["items"]:
+        tr = it.get("trace", {})
+        path, kind = EXT_PATHS.get(tr.get("intent"), ("Hybrid retrieval (FTS5+bge-m3) → Typhoon", "llm")) if tr.get("matched") \
+            else ("Hybrid retrieval (FTS5+bge-m3) → Typhoon", "llm")
+        grouped = {}
+        for prefix, pg in it.get("pages", []):
+            full = next((k for k in DOC_MAP if str(k).startswith(prefix)), prefix)
+            grouped.setdefault(format_doc(full), [])
+            if str(pg) not in grouped[format_doc(full)]:
+                grouped[format_doc(full)].append(str(pg))
+        ref = it["source"]
+        if grouped:
+            ref += "\n(หน้าที่ระบบคืนมา: " + "; ".join(f"{d} หน้า {', '.join(p[:4])}" for d, p in grouped.items()) + ")"
+        role = ext_meta.get("sets", {}).get(it["set"], "").split(" — ")[-1]
+        note = f"[ชุด {it['set']}: {role}] " + (it["note"] or "")
+        ext_results.append({
+            "id": it["id"], "level": f"ระดับ 4: ท้าทายเพิ่มเติม (ชุด {it['set']})", "program": it["program"],
+            "question": it["question"], "skill": "Multi-hop / ข้ามเวอร์ชัน (เขียนเฉลยจากเล่มก่อนรัน)",
+            "expected": it["expected"], "answer": it["answer"], "ref": ref, "path": path, "path_kind": kind,
+            "n_cite": len(it.get("pages", [])), "kw": "—", "verdict": it["verdict"], "note": note.strip(),
+            "latency": f"{it['latency']:.2f}s", "latency_val": it["latency"],
+            "latency_pass": "PASS" if it["latency"] < 5.0 else "FAIL",
+        })
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Workbook
 # ─────────────────────────────────────────────────────────────────────────────
@@ -454,14 +488,27 @@ for key, label in LEVELS:
     rows_out.append((label, len(g), sum(r["kw"] == "PASS" for r in g), sum(r["verdict"] == "ถูกครบ" for r in g),
                      sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in g),
                      f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
-rows_out.append(("รวม", n_total, n_kw, n_full, n_part, n_wrong, f"{sum(times)/n_total:.2f}", f"{max(times):.2f}"))
+rows_out.append(("รวม (ชุดหลัก)", n_total, n_kw, n_full, n_part, n_wrong, f"{sum(times)/n_total:.2f}", f"{max(times):.2f}"))
+for key in ext_meta.get("sets", {}):
+    g = [r for r in ext_results if r["id"].startswith(key)]
+    if g:
+        rows_out.append((f"ท้าทายเพิ่มเติม ชุด {key}", len(g), "—", sum(r["verdict"] == "ถูกครบ" for r in g),
+                         sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in g),
+                         f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
+if ext_results:
+    allr = live_results + ext_results
+    at = [r["latency_val"] for r in allr]
+    rows_out.append(("รวมทั้งหมด", len(allr), "—", sum(r["verdict"] == "ถูกครบ" for r in allr),
+                     sum(r["verdict"] == "ถูกบางส่วน" for r in allr), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in allr),
+                     f"{sum(at)/len(at):.2f}", f"{max(at):.2f}"))
 for ro, row in enumerate(rows_out, start=1):
+    is_total = str(row[0]).startswith("รวม")
     for ci, val in enumerate(row, start=1):
         c = ws.cell(row=start_row + ro, column=ci, value=val)
-        c.font = font_bold if (ci == 1 or ro == len(rows_out)) else font_cell
+        c.font = font_bold if (ci == 1 or is_total) else font_cell
         c.border = thin_border
         c.alignment = align_left if ci == 1 else align_center
-        if ro == len(rows_out):
+        if is_total:
             c.fill = fill_sub
 
 nr = start_row + len(rows_out) + 2
@@ -472,7 +519,8 @@ notes = [
     "3) ความถูกต้องของ citation ไม่ได้ตรวจรายข้อในไฟล์นี้ วัดแยกด้วย python -m katrag.eval.qa_eval (19 ข้อ): precision 0.57, recall 0.53",
     "4) คำตอบสำเร็จรูปที่เคยเขียนไว้ในโค้ดสำหรับ M8, H5, C1, C3 ถูกถอดออกแล้ว ผลในไฟล์นี้มาจาก pipeline จริง (ฐานข้อมูล / retrieval + LLM)",
     "4.1) ข้อที่เรียก LLM ตอบไม่เหมือนเดิมทุกรอบ (เช่น M8, H2) ผลตรวจโดยคนผูกกับคำตอบของรอบที่ตรวจ",
-    "4.2) ข้อท้าทายเพิ่มเติม 20 ข้อ (เขียนเฉลยจากเล่มก่อนรัน รายงานทุกข้อ) อยู่ในแผ่น Challenge (extended)",
+    "4.2) ข้อท้าทายเพิ่มเติม 20 ข้อ (X1–X8, Y1–Y6, Z1–Z6) ต่อท้ายในแผ่น All Test Cases: เขียนคำถามและเฉลยจากเล่มก่อนรัน รายงานทุกข้อที่ลอง ผลบันทึกจากรอบวันที่ "
+    + ext_meta.get("run_on", "-") + " (docs/challenge_extended.json) ชุด X ใช้ออกแบบการแก้ระบบ ชุด Y/Z เขียนไว้ก่อนแก้แต่ละรอบ (held-out)",
     "5) คอลัมน์ 'เส้นทางประมวลผล' ได้จากการ trace โค้ด pipeline (นับว่ามีการเรียก LLM หรือไม่) ไม่ใช่ข้อมูลที่ API ส่งกลับมา",
     "6) เฉลยข้อ H4 เดิมเขียน 48 วิชา แต่ฐานข้อมูลปัจจุบันให้ 52 (DSBA 2560 71 ชื่อ / 2565 75 ชื่อ) ผลของระบบตรงกับฐานข้อมูล",
 ]
@@ -496,7 +544,7 @@ for ci, h in enumerate(headers, start=1):
     c = wt.cell(row=1, column=ci, value=h)
     c.font, c.fill, c.alignment, c.border = font_header, fill_header, align_center, thin_border
 wt.row_dimensions[1].height = 32
-for ri, r in enumerate(live_results, start=2):
+for ri, r in enumerate(live_results + ext_results, start=2):
     wt.row_dimensions[ri].height = 80
     lvl_fill = fill_easy if "ง่าย" in r["level"] else fill_medium if "ปานกลาง" in r["level"] else fill_hard if "ยาก" in r["level"] else fill_challenge
     vals = [r["id"], r["level"], r["program"], r["question"], r["skill"], r["expected"], r["answer"], r["ref"], r["path"],
@@ -522,7 +570,7 @@ for ri, r in enumerate(live_results, start=2):
 for i, w in enumerate([8, 16, 10, 36, 28, 42, 52, 30, 34, 10, 12, 14, 44, 10, 8], start=1):
     wt.column_dimensions[get_column_letter(i)].width = w
 wt.freeze_panes = "A2"
-wt.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{n_total + 1}"
+wt.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{n_total + len(ext_results) + 1}"
 
 # ── Sheet 3: Criteria (measured, no scores awarded) ──
 wc = wb.create_sheet(title="Challenge Criteria (Measured)")
@@ -554,42 +602,6 @@ for ri, row in enumerate(crit_rows, start=4):
         c.alignment = align_left_top
 for i, w in enumerate([34, 46, 52, 60], start=1):
     wc.column_dimensions[get_column_letter(i)].width = w
-
-# ── Sheet 4: Extended challenge set (recorded run, every question reported) ──
-EXT_PATH = Path("docs/challenge_extended.json")
-if EXT_PATH.exists():
-    ext = json.loads(EXT_PATH.read_text(encoding="utf-8"))
-    we = wb.create_sheet(title="Challenge (extended)")
-    we["A1"] = "ข้อท้าทายเพิ่มเติม — บันทึกจากการรันวันที่ " + ext["_meta"].get("run_on", "-")
-    we["A1"].font = font_title
-    we["A2"] = ext["_meta"].get("method", "")
-    we["A2"].font = font_subtitle
-    r0 = 4
-    for key, desc in ext["_meta"].get("sets", {}).items():
-        items = [i for i in ext["items"] if i["set"] == key]
-        full = sum(i["verdict"] == "ถูกครบ" for i in items)
-        part = sum(i["verdict"] == "ถูกบางส่วน" for i in items)
-        bad = sum(i["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for i in items)
-        first = ext["_meta"].get("first_measure", {}).get(key, "")
-        we.cell(row=r0, column=1, value=desc).font = font_bold
-        we.cell(row=r0, column=4, value=f"ผลล่าสุด: ถูกครบ {full} · บางส่วน {part} · ผิด {bad}" + (f"  ({first})" if first else "")).font = font_cell
-        r0 += 1
-    r0 += 1
-    ext_headers = ["ข้อที่", "ชุด", "หลักสูตร", "คำถาม", "เฉลย (จากเล่ม)", "หน้าที่มาของเฉลย", "คำตอบจริงจากเซิร์ฟเวอร์", "ตรวจโดยคน", "หมายเหตุ", "เวลาตอบ (s)"]
-    for ci, h in enumerate(ext_headers, start=1):
-        c = we.cell(row=r0, column=ci, value=h)
-        c.font, c.fill, c.alignment, c.border = font_header, fill_header, align_center, thin_border
-    for ri, it in enumerate(ext["items"], start=r0 + 1):
-        we.row_dimensions[ri].height = 70
-        vals = [it["id"], it["set"], it["program"], it["question"], it["expected"], it["source"], it["answer"], it["verdict"], it["note"], it["latency"]]
-        for ci, v in enumerate(vals, start=1):
-            c = we.cell(row=ri, column=ci, value=v)
-            c.font, c.border = font_cell, thin_border
-            c.alignment = align_center_top if ci in (1, 2, 3, 8, 10) else align_left_top
-            if ci == 8:
-                verdict_style(c, v)
-    for i, w in enumerate([7, 6, 9, 40, 36, 22, 56, 13, 40, 10], start=1):
-        we.column_dimensions[get_column_letter(i)].width = w
 
 output_path = Path("docs/tester.xlsx")
 alt_path = Path("docs/tester_live.xlsx")
