@@ -1,0 +1,206 @@
+{
+ "_meta": {
+  "reviewed_on": "2026-10-04",
+  "method": "อ่านคำตอบเทียบเฉลยในไฟล์ทดสอบ (ไม่ได้เทียบกับ PDF ต้นฉบับโดยตรง)",
+  "note": "ผลตรวจผูกกับข้อความคำตอบ (answer_sha1) ถ้าคำตอบเปลี่ยนจากการรันใหม่ ผลตรวจจะไม่ถูกนำมาใช้",
+  "path_note": "เส้นทางประมวลผลได้จากการ trace โค้ด pipeline.answer_question ด้วย LLM จำลอง (นับว่ามีการเรียก LLM หรือไม่) ณ 2026-10-04"
+ },
+ "reviews": {
+  "E1": {
+   "verdict": "ถูกครบ",
+   "note": "ครบ 7 วิชา 18 หน่วยกิต ตรงเฉลย",
+   "answer_sha1": "7c1c1d56414ed44fdd04505534185310b13d28f0",
+   "path": "Structured SQL (ปี/ภาค) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "E2": {
+   "verdict": "ถูกครบ",
+   "note": "แคลคูลัส 2 = 3(3-0-6) ถูก แต่ตอบพ่วงแคลคูลัส 1 มาด้วย (ส่วนเกิน)",
+   "answer_sha1": "189d2f247f55b1580e0ceda5b94115ffe04383d4",
+   "path": "ค้นวิชาด้วย bge-m3 → จัดรูปคำตอบเอง (ไม่ผ่าน LLM)",
+   "path_kind": "semantic"
+  },
+  "E3": {
+   "verdict": "ถูกครบ",
+   "note": "ปีที่ 3 ภาคการศึกษาที่ 1 ตรงเฉลย",
+   "answer_sha1": "9fdb6c1843088577a5a7176c5bf8e0608d946290",
+   "path": "ค้นวิชาด้วย bge-m3 → จัดรูปคำตอบเอง (ไม่ผ่าน LLM)",
+   "path_kind": "semantic"
+  },
+  "E4": {
+   "verdict": "ถูกครบ",
+   "note": "รายวิชาบังคับ IT ปี 2 เทอม 2 ครบตามแผน",
+   "answer_sha1": "b2d53b9c8cdedbf250f10c018578a6d5b03d696a",
+   "path": "Structured SQL (ปี/ภาค) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "E5": {
+   "verdict": "ถูกครบ",
+   "note": "Big Data Systems ตรงเฉลย",
+   "answer_sha1": "1978d5b621e6caef246b0bc0f4ba65c8c82f11d2",
+   "path": "Structured (ชื่อวิชา) → Typhoon เรียบเรียง",
+   "path_kind": "llm"
+  },
+  "E6": {
+   "verdict": "ถูกครบ",
+   "note": "วิชาบังคับ AIT ปี 1 ทั้ง 2 ภาคตรงเฉลย",
+   "answer_sha1": "fd66759eb2acbca9e2563b200614bfe0fd55f0cd",
+   "path": "Structured SQL (ปี/ภาค) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "E7": {
+   "verdict": "ถูกครบ",
+   "note": "แคลคูลัส 1 (06026200) ตรงเฉลย",
+   "answer_sha1": "f5b7a3ad4f3f77d9b57f78d21dc813bd2cae15d9",
+   "path": "Structured SQL (prerequisite) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "E8": {
+   "verdict": "ถูกครบ",
+   "note": "มีทั้ง 06026203 และ 06066303 (3 หน่วยกิตทั้งคู่) แต่ตอบรวม 4 วิชา 12 หน่วยกิต (มีส่วนเกิน)",
+   "answer_sha1": "8530629ee8c14b948b53a636b615b54f01324e0f",
+   "path": "ค้นวิชาด้วย bge-m3 + Typhoon คัดรหัสวิชา → จัดรูปคำตอบเอง",
+   "path_kind": "semantic"
+  },
+  "E9": {
+   "verdict": "ถูกครบ",
+   "note": "ชื่อวิชาไทย/อังกฤษ ตรงเฉลย",
+   "answer_sha1": "64ec325c691d27381b4810d184d734fb6d7e714b",
+   "path": "Structured SQL (รหัสวิชา) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "M1": {
+   "verdict": "ถูกครบ",
+   "note": "prerequisite 06066300 และปี 2 ภาค 1 ตรงเฉลย",
+   "answer_sha1": "2702418ddd877dcd9210e7674c880cbd3944551b",
+   "path": "Structured SQL (prerequisite) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "M2": {
+   "verdict": "ถูกครบ",
+   "note": "4 วิชา 12 หน่วยกิต ตรงเฉลย",
+   "answer_sha1": "a84559dba0e9f4b64d1316400800acc0a1784900",
+   "path": "ค้นวิชาด้วย bge-m3 + Typhoon คัดรหัสวิชา → จัดรูปคำตอบเอง",
+   "path_kind": "semantic"
+  },
+  "M3": {
+   "verdict": "ถูกครบ",
+   "note": "6 วิชา 18 หน่วยกิต ตรงเฉลย",
+   "answer_sha1": "63d2e25d97e347fe2dc2c40709584a2adb299e6f",
+   "path": "ค้นวิชาด้วย bge-m3 + Typhoon คัดรหัสวิชา → จัดรูปคำตอบเอง",
+   "path_kind": "semantic"
+  },
+  "M4": {
+   "verdict": "ถูกครบ",
+   "note": "7 วิชา 21 หน่วยกิต ตรงเฉลย",
+   "answer_sha1": "beed0b7f495e8add76048ba91a7ead61d0197b18",
+   "path": "ค้นวิชาด้วย bge-m3 + Typhoon คัดรหัสวิชา → จัดรูปคำตอบเอง",
+   "path_kind": "semantic"
+  },
+  "M5": {
+   "verdict": "ถูกครบ",
+   "note": "14 วิชา 42 หน่วยกิต ตรงเฉลย (นับรวมวิชาเลือก)",
+   "answer_sha1": "fcb23d88085d22884ebc1b065789fe7ab5b246a8",
+   "path": "ค้นวิชาด้วย bge-m3 + Typhoon คัดรหัสวิชา → จัดรูปคำตอบเอง",
+   "path_kind": "semantic"
+  },
+  "M6": {
+   "verdict": "ถูกครบ",
+   "note": "วิชาบังคับปี 3 ทั้ง 2 ภาคตรงเฉลย + บอกกลุ่มวิชาเลือกแขนง",
+   "answer_sha1": "86ca1ca3dc2f3d5518f88a652650e7491ac18d5d",
+   "path": "Structured SQL (ปี/ภาค) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "M7": {
+   "verdict": "ถูกครบ",
+   "note": "5 วิชา 15 หน่วยกิต ตรงเฉลย",
+   "answer_sha1": "8a12ec1b946a87b7ca3beca414627b28133bf361",
+   "path": "Structured SQL (ปี/ภาค) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "M8": {
+   "verdict": "ถูกครบ",
+   "note": "แยก 12 หน่วยกิต (วิชาชีพเฉพาะด้าน) กับ 6 หน่วยกิต (การศึกษาทางเลือก) ถูกต้อง",
+   "answer_sha1": "c640febb894987003e5fa365d3fa626784dc5900",
+   "path": "คำตอบสำเร็จรูปที่เขียนไว้ในโค้ด (hard-coded) — ไม่ได้ดึงจากฐานข้อมูลตอนถาม",
+   "path_kind": "hardcoded"
+  },
+  "M9": {
+   "verdict": "ถูกครบ",
+   "note": "prerequisite ถูกต้อง และสรุปว่าลงทะเบียนไม่ได้",
+   "answer_sha1": "a7c2c7ef9c15c9a63b50187e64c8eff4e75088fa",
+   "path": "Structured SQL (prerequisite) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "H1": {
+   "verdict": "ถูกบางส่วน",
+   "note": "ได้แผนบังคับทุกเทอม แต่ไม่สรุปเป็นแผนรายเทอมที่ชัดเจน และมีบรรทัด 'ไม่พบวิชาบังคับปี 4 ภาค 2' ที่ขัดกับหลักการที่ตัวเองอธิบาย",
+   "answer_sha1": "329aeb842128db8f43640727cc9edc81b09100dc",
+   "path": "Structured SQL (แผนทั้งหลักสูตร) — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "H2": {
+   "verdict": "ถูกบางส่วน",
+   "note": "ตอบ 'ได้' ถูก แต่เหตุผลไม่ชี้วิชาฐานข้อมูลที่เปิดปี 4 จริง (06026246) และอ้างโครงงานว่าเกี่ยวกับฐานข้อมูลโดยไม่มีหลักฐาน",
+   "answer_sha1": "24ae9d94db59cfcd0f55c5a5c8f255662c1b73a3",
+   "path": "Structured SQL (ปี/ภาค) + prerequisite → Typhoon (reasoning)",
+   "path_kind": "llm"
+  },
+  "H3": {
+   "verdict": "ถูกครบ",
+   "note": "ตอบ 'ไม่ได้' พร้อมเหตุผลปี/ภาคและ prerequisite ถูกต้อง",
+   "answer_sha1": "641fe5d3716bc8ff5aec35c9b9199ef541ccb5b8",
+   "path": "Structured SQL (ปี/ภาค) + prerequisite → Typhoon (reasoning)",
+   "path_kind": "llm"
+  },
+  "H4": {
+   "verdict": "ถูกครบ",
+   "note": "ได้รายการวิชาที่หายไป 52 วิชา ตรงกับฐานข้อมูลปัจจุบัน (เฉลยเดิมเขียน 48 ซึ่งล้าสมัย)",
+   "answer_sha1": "4b101874a5b57bd7d03642524a80bc1edde36e09",
+   "path": "Set-difference ชื่อวิชาจากฐานข้อมูล 2 เวอร์ชัน — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "H5": {
+   "verdict": "ถูกครบ",
+   "note": "12 หน่วยกิต (และแยก 6 หน่วยกิตของอีกกลุ่ม) ตรงเฉลย",
+   "answer_sha1": "c640febb894987003e5fa365d3fa626784dc5900",
+   "path": "คำตอบสำเร็จรูปที่เขียนไว้ในโค้ด (hard-coded) — ไม่ได้ดึงจากฐานข้อมูลตอนถาม",
+   "path_kind": "hardcoded"
+  },
+  "H6": {
+   "verdict": "ถูกบางส่วน",
+   "note": "ระบุ 3 กลุ่ม (วิทยาการข้อมูล/วิเคราะห์เชิงสถิติ/วิศวกรรมข้อมูล) ได้ แต่ตอบปนรหัสวิชา placeholder 06026xxx ทำให้ไม่ตรงประเด็น",
+   "answer_sha1": "10429c647b1caae8a1bf7fbc32641120354bb6d6",
+   "path": "Hybrid retrieval (FTS5+bge-m3) → Typhoon",
+   "path_kind": "llm"
+  },
+  "H7": {
+   "verdict": "ถูกครบ",
+   "note": "สรุป 'ยังไม่ครบ' ขาดวิชาเลือก 3 หน่วยกิตและหน่วยกิตรวม 9 หน่วยกิต ตรงเฉลย",
+   "answer_sha1": "133cf8e9286e31d6566cdbb1ed417479a4e24f5f",
+   "path": "คำนวณจากตัวเลขในคำถาม เทียบเกณฑ์ที่ตั้งค่าไว้ในโค้ด (ไม่ผ่าน LLM)",
+   "path_kind": "computed"
+  },
+  "C1": {
+   "verdict": "ถูกบางส่วน",
+   "note": "130 → 129 หน่วยกิตถูก แต่ส่วนแขนงวิชาแจ้งว่า 2560 มี 3 แขนง และ 2565 เป็น 3 โมดูล ซึ่งต่างจากเฉลย (เฉลยว่า 2565 มี 3 แขนง) ยังไม่ได้ยืนยันกับ PDF ต้นฉบับ",
+   "answer_sha1": "6011989d1579361d1afa2010ce4b0d467287adec",
+   "path": "คำตอบสำเร็จรูปที่เขียนไว้ในโค้ด (hard-coded) — ไม่ได้ดึงจากฐานข้อมูลตอนถาม",
+   "path_kind": "hardcoded"
+  },
+  "C2": {
+   "verdict": "ถูกบางส่วน",
+   "note": "พบว่าสองไฟล์เป็นไฟล์เดียวกันด้วย SHA-256/ขนาด/จำนวนหน้าถูกต้อง แต่สลับป้ายกำกับ ป.โท/ป.เอก ของสองไฟล์ (เทมเพลตกำหนดป้ายตามลำดับ from/to ไม่ได้อ่านจาก degree_level)",
+   "answer_sha1": "ed741e8b765a0bf9113e143b50c0000f49207b08",
+   "path": "ดึงจากตาราง document_relation (SQL) แล้วใส่ในเทมเพลตข้อความ — ไม่ผ่าน LLM",
+   "path_kind": "sql"
+  },
+  "C3": {
+   "verdict": "ถูกครบ",
+   "note": "ต่างกันที่ปี 4 ภาค 2: แผนปกติเรียนโครงงาน 2 + วิชาเลือก, แผนสหกิจเรียนสหกิจศึกษา 6 หน่วยกิต ตรงเฉลย",
+   "answer_sha1": "f28354ced07268c5e34eadaabf85ea2ae0f14172",
+   "path": "คำตอบสำเร็จรูปที่เขียนไว้ในโค้ด (hard-coded) — ไม่ได้ดึงจากฐานข้อมูลตอนถาม",
+   "path_kind": "hardcoded"
+  }
+ }
+}
