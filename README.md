@@ -139,7 +139,7 @@ python -m uvicorn katrag.api.service:app --host 127.0.0.1 --port 8000
 | `katrag/eval/` | สคริปต์วัดผล (OCR, ฟิลด์, QA, citation, consistency) |
 | `web/` | หน้าเว็บ (HTML/CSS/JS) |
 | `config/` | ค่าตั้งค่า (`katrag.toml` ฯลฯ) |
-| `docs/` | `tester.xlsx` และผลตรวจ, `removed_subsystems.md` (โค้ดที่ถอดออกและเหตุผล) |
+| `docs/` | `tester.xlsx` และผลตรวจ, `er_diagram.md` (แผนภาพ ER), `removed_subsystems.md` (โค้ดที่ถอดออกและเหตุผล) |
 | `tests/` | เทสต์ (`python -m pytest tests`) |
 
 สร้างฐานข้อมูลใหม่จาก PDF (ไม่จำเป็นสำหรับการใช้งาน): วาง PDF ใน `Information_Technology_Course/` แล้วรัน `python -m katrag.cli preflight`, `python -m katrag.cli ingest`, `python -m katrag.cli index` (ต้องติดตั้ง Tesseract 5 ด้วย)
