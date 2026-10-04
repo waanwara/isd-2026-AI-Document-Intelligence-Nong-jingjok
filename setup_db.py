@@ -1,4 +1,4 @@
-"""แตกไฟล์ฐานข้อมูล artifacts/katrag.sqlite3.gz -> artifacts/katrag.sqlite3 (ข้ามถ้ามีอยู่แล้ว)."""
+"""Extract artifacts/katrag.sqlite3.gz -> artifacts/katrag.sqlite3 (skipped if it already exists)."""
 import gzip
 import shutil
 import sys
@@ -11,17 +11,17 @@ DST = ART / "katrag.sqlite3"
 
 def main() -> int:
     if DST.exists() and DST.stat().st_size > 0:
-        print(f"[OK] พบฐานข้อมูลแล้ว: {DST}")
+        print(f"[OK] database already present: {DST}")
         return 0
     if not SRC.exists():
-        print(f"[ERROR] ไม่พบ {SRC} — ดึงไฟล์จาก git ให้ครบก่อน (git pull)")
+        print(f"[ERROR] {SRC} not found - make sure the repo was cloned completely (git pull)")
         return 1
-    print("[INFO] กำลังแตกไฟล์ฐานข้อมูล (~110 MB) ...")
+    print("[INFO] extracting database (~110 MB) ...")
     tmp = DST.with_suffix(".tmp")
     with gzip.open(SRC, "rb") as f_in, open(tmp, "wb") as f_out:
         shutil.copyfileobj(f_in, f_out)
     tmp.replace(DST)
-    print(f"[OK] สร้างฐานข้อมูลเรียบร้อย: {DST}")
+    print(f"[OK] database ready: {DST}")
     return 0
 
 
