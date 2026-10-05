@@ -131,6 +131,98 @@ def _resolve_version_id(conn: sqlite3.Connection, program: str, year_be: int | N
     return None
 
 
+_DEGREE_KW = {
+    "master": ("ปริญญาโท", "ป.โท", "มหาบัณฑิต", "master"),
+    "doctoral": ("ปริญญาเอก", "ป.เอก", "ดุษฎีบัณฑิต", "doctor", "ph.d", "phd"),
+}
+_DEGREE_LABEL = {"bachelor": "ปริญญาตรี", "master": "ปริญญาโท", "doctoral": "ปริญญาเอก"}
+
+
+def _course_scope_versions(conn: sqlite3.Connection, question: str, program: str) -> list[int]:
+    """เวอร์ชันที่ใช้ค้นรายวิชาของหลักสูตรที่ถาม.
+
+    ปีที่ระบุในคำถามมาก่อน ไม่งั้นใช้ฉบับ current ของระดับปริญญาที่ถาม (ไม่ระบุ =
+    ปริญญาตรี) — IT มี current พร้อมกันทั้งตรี/โท/เอก ถ้าค้นรวมกัน วิชาของ ป.โท
+    จะถูกตอบให้คำถามของ ป.ตรี
+    """
+    named = [v for v, p, _ in detect_versions(conn, question) if p == program]
+    if named:
+        return named
+    ql = question.lower()
+    level = next((lv for lv, kws in _DEGREE_KW.items() if any(k in ql for k in kws)), "bachelor")
+    rows = conn.execute(
+        "SELECT DISTINCT cv.version_id FROM curriculum_version cv "
+        "JOIN document d ON d.version_id = cv.version_id "
+        "WHERE cv.program=? AND cv.edition_status='current' AND d.degree_level=?",
+        (program, level),
+    ).fetchall()
+    if not rows:  # หลักสูตรที่มีระดับเดียว (เช่น AITBA มีแต่ ป.โท)
+        rows = conn.execute(
+            "SELECT version_id FROM curriculum_version WHERE program=? AND edition_status='current'",
+            (program,),
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _versions_label(conn: sqlite3.Connection, version_ids: list[int]) -> str:
+    """ชื่อเวอร์ชันสำหรับแสดงในคำตอบ เช่น 'IT 2565 (ปริญญาตรี)'."""
+    out = []
+    for vid in version_ids:
+        r = conn.execute(
+            "SELECT cv.program, cv.curriculum_year, d.degree_level FROM curriculum_version cv "
+            "JOIN document d ON d.version_id = cv.version_id WHERE cv.version_id=? LIMIT 1",
+            (vid,),
+        ).fetchone()
+        if r:
+            out.append(f"{r[0]} {r[1]} ({_DEGREE_LABEL.get(r[2], r[2])})")
+    return ", ".join(out)
+
+
+def _stem_eq(kw: str, word: str) -> bool:
+    """คำตรงกันถ้ามี prefix ร่วมกัน ≥ 5 ตัว (กัน warehouse/warehousing)."""
+    kl, wl = kw.lower(), word.lower()
+    if kl == wl:
+        return True
+    minlen = min(len(kl), len(wl))
+    if minlen < 4:
+        return kl in wl or wl in kl
+    shared = 0
+    for i in range(minlen):
+        if kl[i] != wl[i]:
+            break
+        shared += 1
+    return shared >= min(5, minlen)
+
+
+def _match_course_by_name(conn: sqlite3.Connection, q: str, version_ids: list[int]) -> list:
+    """วิชาที่ชื่อไทย/อังกฤษปรากฏเต็ม ๆ ในคำถาม — เลือกชื่อที่ยาวที่สุด."""
+    if not version_ids:
+        return []
+    ph = ",".join("?" for _ in version_ids)
+    cands = conn.execute(
+        f"SELECT code, name_th, name_en, credits_raw, year, semester, "
+        f"prerequisite_json, prerequisite_raw, version_id "
+        f"FROM course WHERE version_id IN ({ph})",
+        version_ids,
+    ).fetchall()
+    matched = []
+    for c in cands:
+        nth = (c["name_th"] or "").strip()
+        nen = (c["name_en"] or "").strip().lower()
+        if len(nth) >= 4 and nth in q:
+            matched.append((len(nth), c))
+        elif len(nen) >= 4 and nen in q.lower():
+            matched.append((len(nen), c))
+        elif any(sub in q.lower() for sub in ["data warehouse", "warehouse"]) and "warehous" in nen:
+            matched.append((15, c))
+    matched.sort(key=lambda x: -x[0])
+    return [matched[0][1]] if matched else []
+
+
+#: คำอังกฤษที่ไม่ใช่ส่วนของชื่อวิชา
+_EN_STOP = {"and", "the", "for", "prerequisite", "prereq", "pre", "requisite", "course", "subject"}
+
+
 try:
     from pythainlp.tokenize import word_tokenize as _thai_tok
     _HAS_TOK = True
@@ -486,39 +578,42 @@ def try_prerequisite(
     if program:
         q = re.sub(rf"(?i)\b{re.escape(program)}\b", " ", q)
 
-    # หา version scope
-    version_ids: list[int] = []
-    if program:
-        v_rows = conn.execute(
-            "SELECT version_id FROM curriculum_version WHERE program=? AND edition_status='current'",
-            (program,),
-        ).fetchall()
-        version_ids = [r[0] for r in v_rows]
+    version_ids = _course_scope_versions(conn, question, program) if program else []
 
     # ลองจับคู่ชื่อวิชาโดยตรงจากตาราง course ใน version นั้นก่อน (แก้ปัญหา Tokenizer ไทยตัดคำเพี้ยน)
-    rows = []
-    if version_ids:
-        ph = ",".join("?" for _ in version_ids)
-        c_candidates = conn.execute(
-            f"SELECT code, name_th, name_en, credits_raw, year, semester, "
-            f"prerequisite_json, prerequisite_raw, version_id "
-            f"FROM course WHERE version_id IN ({ph})",
-            version_ids,
-        ).fetchall()
-        direct_matched = []
-        for c in c_candidates:
-            nth = (c["name_th"] or "").strip()
-            nen = (c["name_en"] or "").strip().lower()
-            if len(nth) >= 4 and nth in q:
-                direct_matched.append((len(nth), c))
-            elif len(nen) >= 4 and nen in q.lower():
-                direct_matched.append((len(nen), c))
-            elif any(sub in q.lower() for sub in ["data warehouse", "warehouse"]) and "warehous" in nen:
-                direct_matched.append((15, c))
+    rows = _match_course_by_name(conn, q, version_ids)
 
-        if direct_matched:
-            direct_matched.sort(key=lambda x: -x[0])
-            rows = [direct_matched[0][1]]
+    # ชื่อวิชาภาษาอังกฤษในคำถาม: ทุกคำต้องอยู่ในชื่อวิชาเดียวกัน ถ้าไม่มีวิชาไหนตรง
+    # ให้ตอบว่าไม่พบ แทนการหยิบวิชาที่มีคำร่วมแค่บางคำ (เช่น "Data") มาตอบ
+    en_words = [w for w in re.findall(r"[A-Za-z]{3,}", q) if w.lower() not in _EN_STOP]
+    if not rows and en_words and version_ids:
+        ph = ",".join("?" for _ in version_ids)
+        strict = [
+            c for c in conn.execute(
+                f"SELECT code, name_th, name_en, credits_raw, year, semester, "
+                f"prerequisite_json, prerequisite_raw, version_id "
+                f"FROM course WHERE version_id IN ({ph})",
+                version_ids,
+            ).fetchall()
+            # เทียบเฉพาะคำในชื่อวิชาที่ยาว ≥ 3 ตัว — คำสั้นอย่าง "in"/"e" เป็น substring
+            # ของคำค้นแทบทุกคำ
+            if all(
+                any(_stem_eq(w, x) for x in re.findall(r"[a-z]{3,}", (c["name_en"] or "").lower()))
+                for w in en_words
+            )
+        ]
+        if not strict:
+            name = " ".join(en_words)
+            return StructuredResult(
+                True,
+                f"ไม่พบวิชาชื่อ \"{name}\" ในหลักสูตร {_versions_label(conn, version_ids)}\n"
+                "จึงตอบเรื่องวิชาบังคับก่อนของวิชานี้ไม่ได้ ลองตรวจชื่อวิชา หรือระบุรหัสวิชา 8 หลัก",
+                "", "prerequisite",
+                version_id=version_ids[0],
+            )
+        # ชื่อสั้นสุดคือชื่อที่ตรงคำถามที่สุด (คำเกินน้อยสุด)
+        strict.sort(key=lambda c: len(c["name_en"] or ""))
+        rows = strict[:3]
 
     keywords = []
     if not rows:
@@ -560,29 +655,12 @@ def try_prerequisite(
 
     # ── Relevance ranking: เรียงตามจำนวน keyword ที่ match ──
     if keywords and len(rows) > 1:
-        def _stem_match(kw: str, word: str) -> bool:
-            """Match ถ้า keyword กับคำในชื่อวิชามี prefix ร่วมกัน ≥ 5 ตัว (กัน warehouse/warehousing)."""
-            kl = kw.lower()
-            wl = word.lower()
-            if kl == wl:
-                return True
-            minlen = min(len(kl), len(wl))
-            if minlen < 4:
-                return kl in wl or wl in kl
-            shared = 0
-            for i in range(minlen):
-                if kl[i] == wl[i]:
-                    shared += 1
-                else:
-                    break
-            return shared >= min(5, minlen)
-
         def _kw_score(r) -> int:
             blob = f"{r['name_th']} {r['name_en']}".lower()
             words = re.findall(r"[ก-๙]+|[a-z]+", blob)
             score = 0
             for kw in keywords:
-                if any(_stem_match(kw, w) for w in words):
+                if any(_stem_eq(kw, w) for w in words):
                     score += 1
             return score
 
@@ -686,6 +764,77 @@ def _prereq_chain_lines(
         out.append(f"{indent}↳ ต้องผ่าน {pc} {name} ก่อน")
         out.extend(_prereq_chain_lines(conn, pc, version_id, depth=depth + 1, seen=seen))
     return out
+
+
+#: ถามทิศกลับของ prerequisite — วิชานี้เป็นวิชาบังคับก่อนของวิชาไหน
+_DEPENDENT_KW = (
+    "กระทบ", "เป็นวิชาบังคับก่อนของ", "ใช้เป็นวิชาบังคับก่อน", "เป็นพื้นฐานของวิชา",
+    "ต่อยอด", "สอบตก", "ตกวิชา",
+)
+
+
+def detect_dependents_intent(question: str) -> bool:
+    return any(k in question for k in _DEPENDENT_KW)
+
+
+def try_dependents(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """วิชาที่ต้องผ่านวิชาที่ถามก่อนจึงจะลงได้ (ไล่ต่อหลายชั้น) — จาก course.prerequisite_json."""
+    import json
+    conn.row_factory = sqlite3.Row
+    program = detect_program(question)
+    if not program:
+        return StructuredResult(False, "", "", "none")
+    q = re.sub(r"หลักสูตร\s+[A-Za-z]+\s*[:：]", " ", question)
+    version_ids = _course_scope_versions(conn, question, program)
+    rows = _match_course_by_name(conn, q, version_ids)
+    if not rows:
+        return StructuredResult(False, "", "", "none")
+    base = rows[0]
+    vid = base["version_id"]
+
+    def _children(code: str) -> list:
+        return [
+            r for r in conn.execute(
+                "SELECT code, name_th, name_en, credits_raw, year, semester, prerequisite_json "
+                "FROM course WHERE version_id=? AND prerequisite_json LIKE ? ORDER BY code",
+                (vid, f'%"{code}"%'),
+            ).fetchall()
+            if code in json.loads(r["prerequisite_json"] or "[]")
+        ]
+
+    def _plan(r) -> str:
+        if r["year"] and r["semester"]:
+            return f"ปีที่ {r['year']} ภาคการศึกษาที่ {r['semester']}"
+        return "ไม่ระบุชั้นปี (วิชาเลือก)"
+
+    en = f" ({base['name_en']})" if base["name_en"] else ""
+    lines = [f"วิชา {base['code']} {base['name_th']}{en} — {_plan(base)}"]
+    codes = [base["code"]]
+    seen = {base["code"]}
+
+    def _walk(code: str, depth: int) -> None:
+        for r in _children(code):
+            if r["code"] in seen or depth > 4:
+                continue
+            seen.add(r["code"])
+            codes.append(r["code"])
+            ren = f" ({r['name_en']})" if r["name_en"] else ""
+            indent = "  " + "  " * depth
+            mark = "•" if depth == 1 else "↳"
+            lines.append(f"{indent}{mark} {r['code']} {r['name_th']}{ren} — {r['credits_raw']} | {_plan(r)}")
+            _walk(r["code"], depth + 1)
+
+    lines.append("  วิชาที่ต้องผ่านวิชานี้ก่อนจึงจะลงได้ (↳ = ต่อจากวิชาด้านบนอีกชั้น):")
+    n_before = len(lines)
+    _walk(base["code"], 1)
+    if len(lines) == n_before:
+        lines[-1] = "  ไม่มีวิชาใดในหลักสูตรนี้ที่กำหนดวิชานี้เป็นวิชาบังคับก่อน"
+    else:
+        lines.append("  ถ้ายังไม่ผ่านวิชานี้ จะลงวิชาข้างต้นไม่ได้จนกว่าจะผ่าน")
+    return StructuredResult(
+        True, "\n".join(lines), _versions_label(conn, [vid]), "dependents",
+        codes=codes, version_id=vid,
+    )
 
 
 def detect_plan_summary_intent(question: str) -> bool:
@@ -828,6 +977,82 @@ def _format_early_grad(
     lines.append("และต้องตรวจ prerequisite ว่าวิชาที่จะดึงขึ้นมาลงก่อนได้จริง")
 
     return StructuredResult(True, "\n".join(lines), version_label, "plan_summary")
+
+
+_SEM_HEADER_RE = re.compile(r"ปีที่\s*([1-4])\s*ภาค(?:การศึกษา|เรียน)ที่\s*([1-3])")
+_SEM_TOTAL_RE = re.compile(r"(?<![ก-๙])รวม\s*\|?\s*(\d{1,2})(?![\d.])")
+_LOAD_MAX_KW = ("มากที่สุด", "เยอะที่สุด", "หนักที่สุด", "สูงสุด")
+_LOAD_MIN_KW = ("น้อยที่สุด", "เบาที่สุด", "ต่ำสุด", "น้อยสุด")
+
+
+def detect_semester_load_intent(question: str) -> bool:
+    """ถามภาคเรียนที่หน่วยกิตตามแผนมาก/น้อยที่สุด."""
+    return (
+        "หน่วยกิต" in question
+        and any(w in question for w in ("ภาค", "เทอม"))
+        and any(w in question for w in _LOAD_MAX_KW + _LOAD_MIN_KW)
+    )
+
+
+def semester_totals(conn: sqlite3.Connection, version_id: int) -> dict[tuple[int, int], tuple[int, int]]:
+    """หน่วยกิตรวมของแต่ละภาคตามแผนการศึกษา อ่านจากบรรทัด 'รวม' ใต้หัว 'ปีที่ X ภาคการศึกษาที่ Y'
+    ในหน้าแผนของเล่ม (รวมวิชาเลือกที่แผนกำหนดแล้ว ต่างจากผลรวมวิชาบังคับในตาราง course).
+
+    คืน {(ปี, ภาค): (หน่วยกิต, หน้า)} — ใช้ตารางแรกที่พบ (แผนปกติ; แผนสหกิจอยู่หน้าหลังกว่า)
+    """
+    found: dict[tuple[int, int], tuple[int, int]] = {}
+    for page_no, text in conn.execute(
+        "SELECT p.page_number, p.page_text FROM page p JOIN document d ON d.document_id = p.document_id "
+        "WHERE d.version_id=? ORDER BY p.document_id, p.page_number",
+        (version_id,),
+    ):
+        heads = list(_SEM_HEADER_RE.finditer(text))
+        for i, h in enumerate(heads):
+            end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+            m = _SEM_TOTAL_RE.search(text, h.end(), end)
+            key = (int(h.group(1)), int(h.group(2)))
+            if m and key not in found:
+                found[key] = (int(m.group(1)), page_no)
+    return found
+
+
+def try_semester_load(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """ภาคเรียนที่ต้องลงหน่วยกิตมาก/น้อยที่สุดตามแผนการศึกษาในเล่ม."""
+    program = detect_program(question)
+    if not program:
+        return StructuredResult(False, "", "", "none")
+    named = [v for v, p, _ in detect_versions(conn, question) if p == program]
+    resolved = (named[0], "") if named else _resolve_version_id(conn, program, None)
+    if not resolved:
+        return StructuredResult(False, "", "", "none")
+    vid = resolved[0]
+    totals = semester_totals(conn, vid)
+    if not totals:
+        return StructuredResult(False, "", "", "none")
+
+    label = _versions_label(conn, [vid])
+    want_min = any(w in question for w in _LOAD_MIN_KW)
+    lines = [f"หน่วยกิตต่อภาคตามแผนการศึกษาของ {label} (จากบรรทัด 'รวม' ของแต่ละภาคในเล่ม รวมวิชาเลือกที่แผนกำหนดแล้ว):"]
+    for (y, s), (cr, pg) in sorted(totals.items()):
+        lines.append(f"  - ปีที่ {y} ภาคการศึกษาที่ {s}: {cr} หน่วยกิต (หน้า {pg})")
+
+    target = min(c for c, _ in totals.values()) if want_min else max(c for c, _ in totals.values())
+    hits = [f"ปีที่ {y} ภาคการศึกษาที่ {s}" for (y, s), (c, _) in sorted(totals.items()) if c == target]
+    word = "น้อยที่สุด" if want_min else "มากที่สุด"
+    lines.append("")
+    lines.append(f"ภาคที่หน่วยกิต{word}: {' และ '.join(hits)} — {target} หน่วยกิต")
+
+    # ตรวจความครบ: ผลรวมทุกภาคควรเท่าหน่วยกิตรวมของหลักสูตร (ตาราง rule)
+    total = sum(c for c, _ in totals.values())
+    rule = conn.execute(
+        "SELECT value_numeric FROM rule WHERE version_id=? AND attribute='min_total_credits'", (vid,)
+    ).fetchone()
+    if rule and rule[0] is not None and int(rule[0]) != total:
+        lines.append(
+            f"หมายเหตุ: อ่านตัวเลขรวมได้ {len(totals)} ภาค ผลรวม {total} หน่วยกิต ไม่เท่าหน่วยกิตรวมของหลักสูตร "
+            f"{rule[0]:g} หน่วยกิต อาจมีบางภาคที่อ่านจากเล่มไม่ได้"
+        )
+    return StructuredResult(True, "\n".join(lines), label, "semester_load", version_id=vid)
 
 
 _TOTAL_CREDIT_KW = (
@@ -1120,7 +1345,13 @@ def detect_rule_intent(question: str) -> str | None:
         return "honors"
     if any(kw in question for kw in _GRADUATION_KW):
         return "graduation"
+    # สำนวนสั้น เช่น "ต้องเรียนกี่หน่วยกิตจึงจะจบ", "รวม 116 หน่วยกิต จบได้ไหม"
+    if "หน่วยกิต" in question and _GRAD_SHORT_RE.search(question):
+        return "graduation"
     return None
+
+
+_GRAD_SHORT_RE = re.compile(r"(?:จึงจะ|ถึงจะ|เพื่อ|ถึง|ให้)\s*จบ|จบ\s*(?:ได้|การ|หลักสูตร)")
 
 
 def try_rule_answer(conn: sqlite3.Connection, question: str) -> StructuredResult:
@@ -1139,9 +1370,13 @@ def try_rule_answer(conn: sqlite3.Connection, question: str) -> StructuredResult
     if program is None:
         return StructuredResult(False, "", "", "none")
 
-    version_id = _resolve_version_for_rule(conn, program)
+    # ปีที่ระบุในคำถาม (เช่น "BIT 2560") ชนะฉบับ current
+    named = [(v, y) for v, p, y in detect_versions(conn, question) if p == program]
+    version_id = named[0][0] if len(named) == 1 else _resolve_version_for_rule(conn, program)
     if version_id is None:
         return StructuredResult(False, "", "", "none")
+    if len(named) == 1:
+        program = f"{program} {named[0][1]}"
 
     rows = conn.execute(
         "SELECT rule_kind, attribute, comparator, value_numeric, value_text "

@@ -25,6 +25,7 @@ intent chain → retrieval → adaptive cutoff → สร้าง prompt → �
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,6 +41,7 @@ from katrag.query.structured_query import (
     detect_credit_compare_intent,
     detect_versions,
     detect_cross_version_intent,
+    detect_dependents_intent,
     detect_document_relation_intent,
     detect_graduation_audit_intent,
     detect_person_intent,
@@ -48,11 +50,13 @@ from katrag.query.structured_query import (
     detect_program,
     detect_program_name_intent,
     detect_rule_intent,
+    detect_semester_load_intent,
     detect_year,
     source_pages_for_codes,
     try_course_code,
     try_credit_compare,
     try_cross_version_diff,
+    try_dependents,
     try_document_relation,
     try_graduation_audit,
     try_person_answer,
@@ -60,6 +64,7 @@ from katrag.query.structured_query import (
     try_prerequisite,
     try_program_name,
     try_rule_answer,
+    try_semester_load,
     try_structured_answer,
 )
 from katrag.query.topic_semantic import (
@@ -87,10 +92,11 @@ DIRECT_INTENTS = frozenset({
     "year_sem", "all_courses", "plan_summary", "cross_version",
     "topic_courses", "topic_semantic", "prerequisite", "rule", "person",
     "course_code", "doc_relation", "grad_audit", "credit_compare",
+    "dependents", "semester_load",
 })
 
 ALWAYS_DIRECT_INTENTS = frozenset({
-    "course_code", "doc_relation", "grad_audit", "prerequisite",
+    "course_code", "doc_relation", "grad_audit", "prerequisite", "dependents",
 })
 
 #: คำที่บ่งชี้ว่าเป็นคำถามเชิงวิเคราะห์ (ต้องให้ LLM ให้เหตุผล ไม่ใช่ list ข้อมูล)
@@ -255,7 +261,9 @@ def scope_question(question: str, program: str) -> str:
     2. append hint คำเทียบเคียง (เมื่อคำถามใช้ term ที่เอกสารเขียนต่างกัน)
     """
     scoped = question
-    if program and program not in scoped.upper():
+    # หารหัสหลักสูตรเป็นคำ ไม่ใช่ substring — เดิม "Cybersecurity" ถูกนับว่าระบุ IT
+    # แล้ว คำถามจึงไม่ถูกผูกกับหลักสูตรที่เลือก
+    if program and not re.search(rf"(?<![A-Z]){re.escape(program)}(?![A-Z])", scoped.upper()):
         scoped = f"หลักสูตร {program}: {scoped}"
     return _expand_synonyms(scoped)
 
@@ -343,6 +351,16 @@ def _dispatch_intent(conn: sqlite3.Connection, question: str):
     if detect_program_name_intent(question):
         sr = try_program_name(conn, question)
         return sr if sr.matched else try_structured_answer(conn, question)
+    # วิชานี้เป็นวิชาบังคับก่อนของวิชาไหน (ทิศกลับ) — เช็กก่อน prerequisite
+    # เพราะคำถามแบบนี้มักมีคำว่า "วิชาบังคับก่อน" อยู่ด้วย
+    if detect_dependents_intent(question):
+        sr = try_dependents(conn, question)
+        if sr.matched:
+            return sr
+    if detect_semester_load_intent(question):
+        sr = try_semester_load(conn, question)
+        if sr.matched:
+            return sr
     if detect_prerequisite_intent(question):
         sr = try_prerequisite(conn, question)
         if sr.matched:
@@ -608,7 +626,8 @@ def _augment_with_prerequisite(
         pr = try_prerequisite(conn, question, require_intent=False)
     except Exception:
         return context
-    if pr.matched:
+    # pr.codes ว่าง = ไม่พบวิชาในหลักสูตร ไม่ต้องเสริมข้อความนั้นให้ LLM
+    if pr.matched and pr.codes:
         return f"{context}\n\n[ข้อมูลวิชาบังคับก่อน]:\n{pr.context}"
     return context
 
