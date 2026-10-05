@@ -69,6 +69,12 @@ from katrag.query.structured_query import (
     try_structure_answer,
     try_structured_answer,
 )
+from katrag.query.course_groups import (
+    detect_course_lookup_intent,
+    detect_track_intent,
+    try_course_lookup,
+    try_track,
+)
 from katrag.query.plan_variants import detect_plan_variant_intent, try_plan_variants
 from katrag.query.topic_semantic import (
     answer_topic,
@@ -96,11 +102,12 @@ DIRECT_INTENTS = frozenset({
     "topic_courses", "topic_semantic", "prerequisite", "rule", "person",
     "course_code", "doc_relation", "grad_audit", "credit_compare",
     "dependents", "semester_load", "category_credits", "plan_variant",
+    "course_lookup", "track",
 })
 
 ALWAYS_DIRECT_INTENTS = frozenset({
     "course_code", "doc_relation", "grad_audit", "prerequisite", "dependents",
-    "category_credits", "plan_variant",
+    "category_credits", "plan_variant", "course_lookup", "track",
 })
 
 #: คำที่บ่งชี้ว่าเป็นคำถามเชิงวิเคราะห์ (ต้องให้ LLM ให้เหตุผล ไม่ใช่ list ข้อมูล)
@@ -380,6 +387,15 @@ def _dispatch_intent(conn: sqlite3.Connection, question: str):
         sr = try_semester_load(conn, question)
         if sr.matched:
             return sr
+    # แขนง/กลุ่มวิชามีวิชาอะไร และ "วิชา X เรียนตอนไหน" (ตอบจากตารางแผนและหัวข้อรายวิชาในเล่ม)
+    if detect_track_intent(question):
+        sr = try_track(conn, question)
+        if sr.matched:
+            return sr
+    if detect_course_lookup_intent(question):
+        sr = try_course_lookup(conn, question)
+        if sr.matched:
+            return sr
     if detect_prerequisite_intent(question):
         sr = try_prerequisite(conn, question)
         if sr.matched:
@@ -613,6 +629,8 @@ def compose_answer(
     prompt_context = context
     if reasoning and structured.matched and "prerequisite" not in structured.intent:
         prompt_context = _augment_with_prerequisite(conn, question, context)
+    # ไม่ส่งเลขประจำตัวประชาชน (มีในประวัติอาจารย์ของเล่ม) ให้ LLM เลย
+    prompt_context = redact_pii(prompt_context)
 
     prompt = (
         _reasoning_prompt(prompt_context, question)
@@ -623,6 +641,11 @@ def compose_answer(
 
     try:
         answer = llm.generate(prompt, max_tokens=max_tokens)
+        # Typhoon บางครั้งปนอักษรจีน/ญี่ปุ่น/เกาหลี (เล่มไม่มีอักษรเหล่านี้เลย) — ถามซ้ำหนึ่งครั้ง
+        # พร้อมกำชับภาษา ถ้ายังปนอยู่ให้ตัดอักษรนั้นทิ้ง
+        if _CJK_RE.search(answer):
+            answer = llm.generate(prompt + _THAI_ONLY_REMINDER, max_tokens=max_tokens)
+            answer = _strip_cjk(answer)
     except Exception as exc:
         return _fallback_answer(context, f"{type(exc).__name__}: {exc}")
 
@@ -631,6 +654,22 @@ def compose_answer(
     return postprocess_answer(
         answer, [h.text for h in hits], question, dedup=not reasoning
     )
+
+
+#: เลขประจำตัวประชาชน 13 หลัก (ติดกัน หรือมีขีดแบบ 1-2345-67890-12-3)
+_PII_RE = re.compile(r"(?<!\d)(?:\d{13}|\d-\d{4}-\d{5}-\d{2}-\d)(?!\d)")
+_PII_MASK = "[ปิดเลขประจำตัว]"
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿]")
+_THAI_ONLY_REMINDER = "\n(ตอบเป็นภาษาไทยเท่านั้น ใช้ภาษาอังกฤษได้เฉพาะชื่อเฉพาะ ห้ามใช้อักษรจีน ญี่ปุ่น หรือเกาหลี)\n"
+
+
+def redact_pii(text: str) -> str:
+    """ปิดเลขประจำตัวประชาชนในข้อความที่จะส่งให้ LLM หรือส่งกลับผู้ใช้."""
+    return _PII_RE.sub(_PII_MASK, text or "")
+
+
+def _strip_cjk(text: str) -> str:
+    return re.sub(r"[ \t]{2,}", " ", _CJK_RE.sub("", text or ""))
 
 
 def _augment_with_prerequisite(
@@ -672,7 +711,7 @@ def citations_from_hits(hits: Sequence[EvidenceHit]) -> list[CitationRef]:
             document_id=hit.document_id,
             page=hit.page_number,
             heading=hit.heading or "ไม่มีหัวข้อ",
-            chunk_text=hit.text[:1000],
+            chunk_text=redact_pii(hit.text[:1000]),
         )
         for i, hit in enumerate(hits, 1)
     ]
@@ -795,7 +834,7 @@ def answer_question(
         conn.close()
 
     return AnswerResult(
-        answer=answer,
+        answer=redact_pii(answer),
         citations=citations,
         versions_resolved=_collect_versions(structured, hits),
         program=program,

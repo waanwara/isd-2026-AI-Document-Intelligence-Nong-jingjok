@@ -1358,6 +1358,9 @@ def detect_rule_intent(question: str) -> str | None:
     ครอบเฉพาะ 'graduation' และ 'honors' เพราะเป็นสองประเภทเดียวที่ populate_rules
     ใส่ข้อมูลไว้จริง (ยืนยันด้วย provenance ในเล่ม + ตรงกับ teacher GT)
     """
+    # "อาจารย์ X จบการศึกษาจากที่ไหน" ถามประวัติอาจารย์ ไม่ใช่เกณฑ์จบของหลักสูตร
+    if "อาจารย์" in question:
+        return None
     if any(kw in question for kw in _HONORS_KW):
         return "honors"
     if any(kw in question for kw in _GRADUATION_KW):
@@ -1599,11 +1602,44 @@ def try_person_answer(conn: sqlite3.Connection, question: str) -> StructuredResu
     if program is None:
         return StructuredResult(False, "", "", "none")
 
-    version_id = _PERSON_VERSIONS.get(program)
+    # เวอร์ชันตามระดับปริญญาที่ถาม (ไม่ระบุ = ปริญญาตรี) — เดิมใช้ค่าตายตัวต่อหลักสูตร ทำให้คำถามของ
+    # IT ปริญญาตรีได้รายชื่ออาจารย์ของ ป.โท IT 2568 ถ้าระดับนั้นไม่มีข้อมูลในตาราง person ให้ไปค้นจากเล่มแทน
+    scope = _course_scope_versions(conn, question, program)
+    with_people = [
+        v for v in scope
+        if conn.execute("SELECT 1 FROM person WHERE version_id=? LIMIT 1", (v,)).fetchone()
+    ]
+    role = _detect_person_role(question)
+
+    # รายชื่อจากหัวข้อ 3.2.x ในเล่มโดยตรงก่อน (ครบกว่าตาราง person)
+    from katrag.query.faculty import faculty_lists
+
+    book_role = {"responsible": "responsible", "regular": "regular", "teaching_regular": "teaching"}[role]
+    for vid in scope:
+        lists = faculty_lists(conn, vid)
+        people = lists.get(book_role)
+        if not people:
+            continue
+        label = _versions_label(conn, [vid])
+        title = {"responsible": "อาจารย์ผู้รับผิดชอบหลักสูตร", "regular": "อาจารย์ประจำหลักสูตร",
+                 "teaching": "อาจารย์ผู้สอน"}[book_role]
+        pg = sorted({p for _n, _name, p in people})
+        lines = [f"{title} {label} มี {len(people)} คน (มคอ.2 หน้า {pg[0]}–{pg[-1]}):"]
+        lines += [f"  {n}. {name}" for n, name, _p in people]
+        others = [(k, len(v)) for k, v in lists.items() if k != book_role]
+        names = {"responsible": "อาจารย์ผู้รับผิดชอบหลักสูตร", "regular": "อาจารย์ประจำหลักสูตร", "teaching": "อาจารย์ผู้สอน"}
+        if others:
+            lines.append("")
+            lines.append("ในเล่มยังมีรายชื่อ: " + " · ".join(f"{names[k]} {n} คน" for k, n in others))
+        doc = conn.execute("SELECT document_id FROM document WHERE version_id=? LIMIT 1", (vid,)).fetchone()
+        return StructuredResult(
+            True, "\n".join(lines), label, "person", version_id=vid,
+            pages=[(doc[0], p, title) for p in pg][:8] if doc else [],
+        )
+
+    version_id = with_people[0] if with_people else None
     if version_id is None:
         return StructuredResult(False, "", "", "none")
-
-    role = _detect_person_role(question)
     rows = conn.execute(
         "SELECT sequence_no, name_raw FROM person "
         "WHERE version_id=? AND role=? ORDER BY sequence_no",
