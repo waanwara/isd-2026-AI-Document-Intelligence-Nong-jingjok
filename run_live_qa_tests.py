@@ -365,6 +365,40 @@ EXT_PATHS = {
     "credit_compare": ("เทียบหน่วยกิตรวมจากตาราง rule (มี provenance) — ไม่ผ่าน LLM", "sql"),
     "prerequisite": ("Structured SQL (prerequisite) — ไม่ผ่าน LLM", "sql"),
 }
+
+
+def _ref_with_pages(source, pages):
+    """หน้าอ้างอิงที่เฉลยมาจากเล่ม + หน้าที่ระบบคืนมา (pages = [[prefix 6 ตัวของ document_id, หน้า]])."""
+    grouped = {}
+    for prefix, pg in pages:
+        full = next((k for k in DOC_MAP if str(k).startswith(prefix)), prefix)
+        grouped.setdefault(format_doc(full), [])
+        if str(pg) not in grouped[format_doc(full)]:
+            grouped[format_doc(full)].append(str(pg))
+    if grouped:
+        return source + "\n(หน้าที่ระบบคืนมา: " + "; ".join(f"{d} หน้า {', '.join(p[:4])}" for d, p in grouped.items()) + ")"
+    return source
+
+
+# ชุดเพิ่มระดับง่าย/ปานกลาง/ยาก: บันทึกจากการรัน เฉลยและผลตรวจอยู่ใน docs/extra_levels.json
+EXTRA_PATH = Path("docs/extra_levels.json")
+LEVEL_NO = {"ง่าย": 1, "ปานกลาง": 2, "ยาก": 3}
+extra_meta, extra_results = {}, []
+if EXTRA_PATH.exists():
+    extra = json.loads(EXTRA_PATH.read_text(encoding="utf-8"))
+    extra_meta = extra["_meta"]
+    for it in extra["items"]:
+        kind = "sql" if "ไม่ผ่าน LLM" in it["path"] else "llm"
+        extra_results.append({
+            "id": it["id"], "level": f"ระดับ {LEVEL_NO[it['level']]}: {it['level']} (ชุดเพิ่ม)", "program": it["program"],
+            "question": it["question"], "skill": "ชุดเพิ่ม: ข้อเท็จจริง / prerequisite / วิชาที่ไม่มี / สรุปจากแผน (ตรวจเฉลยจากเล่ม)",
+            "expected": it["expected"], "answer": it["answer"], "ref": _ref_with_pages(it["source"], it.get("pages", [])),
+            "path": it["path"], "path_kind": kind,
+            "n_cite": len(it.get("pages", [])), "kw": "—", "verdict": it["verdict"], "note": it["note"],
+            "latency": f"{it['latency']:.2f}s", "latency_val": it["latency"],
+            "latency_pass": "PASS" if it["latency"] < 5.0 else "FAIL",
+        })
+
 ext_meta, ext_results = {}, []
 if EXT_PATH.exists():
     ext = json.loads(EXT_PATH.read_text(encoding="utf-8"))
@@ -373,15 +407,7 @@ if EXT_PATH.exists():
         tr = it.get("trace", {})
         path, kind = EXT_PATHS.get(tr.get("intent"), ("Hybrid retrieval (FTS5+bge-m3) → Typhoon", "llm")) if tr.get("matched") \
             else ("Hybrid retrieval (FTS5+bge-m3) → Typhoon", "llm")
-        grouped = {}
-        for prefix, pg in it.get("pages", []):
-            full = next((k for k in DOC_MAP if str(k).startswith(prefix)), prefix)
-            grouped.setdefault(format_doc(full), [])
-            if str(pg) not in grouped[format_doc(full)]:
-                grouped[format_doc(full)].append(str(pg))
-        ref = it["source"]
-        if grouped:
-            ref += "\n(หน้าที่ระบบคืนมา: " + "; ".join(f"{d} หน้า {', '.join(p[:4])}" for d, p in grouped.items()) + ")"
+        ref = _ref_with_pages(it["source"], it.get("pages", []))
         role = ext_meta.get("sets", {}).get(it["set"], "").split(" — ")[-1]
         note = f"[ชุด {it['set']}: {role}] " + (it["note"] or "")
         ext_results.append({
@@ -464,7 +490,7 @@ meta = [
     ("สถาปัตยกรรม:", "Structured SQL (SQLite) + Hybrid retrieval (FTS5 + bge-m3) + Typhoon LLM สำหรับคำถามเชิงเหตุผล"),
     ("LLM:", "Typhoon v2.5 30B-A3B (typhoon-v2.5-30b-a3b-instruct) ผ่าน OpenAI-compatible API"),
     ("ข้อมูล:", "14 เล่มหลักสูตร (3,689 หน้า, 1,419 รายวิชา)"),
-    ("จำนวนข้อทดสอบ:", f"{n_total} ข้อ (E1–E9, M1–M9, H1–H7, C1–C3)"),
+    ("จำนวนข้อทดสอบ:", f"{n_total} ข้อชุดหลัก (E1–E9, M1–M9, H1–H7, C1–C3) + {len(extra_results)} ข้อชุดเพิ่มระดับง่าย/ปานกลาง/ยาก (E10–H15) + {len(ext_results)} ข้อท้าทายเพิ่มเติม (X1–Z6) = {n_total + len(extra_results) + len(ext_results)} ข้อ"),
     ("ตรวจคำสำคัญ (auto):", f"{n_kw}/{n_total} ข้อ — เกณฑ์หลวม (บางข้อตรวจแค่มีตัวเลข) ไม่ใช่การยืนยันว่าถูก"),
     ("ตรวจโดยคน (เทียบเฉลย):", f"ถูกครบ {n_full} · ถูกบางส่วน {n_part} · ผิด/ไม่ตรงเฉลย {n_wrong} · ยังไม่ได้ตรวจ {n_unrev}"),
     ("เวลาตอบ:", f"เฉลี่ย {sum(times)/n_total:.2f}s · เร็วสุด {min(times):.2f}s · ช้าสุด {max(times):.2f}s · ต่ำกว่า 5s {sum(t < 5 for t in times)}/{n_total} ข้อ"),
@@ -489,14 +515,20 @@ for key, label in LEVELS:
                      sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in g),
                      f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
 rows_out.append(("รวม (ชุดหลัก)", n_total, n_kw, n_full, n_part, n_wrong, f"{sum(times)/n_total:.2f}", f"{max(times):.2f}"))
+for key, label in LEVELS[:3]:
+    g = [r for r in extra_results if key in r["level"]]
+    if g:
+        rows_out.append((f"ชุดเพิ่ม {label}", len(g), "—", sum(r["verdict"] == "ถูกครบ" for r in g),
+                         sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in g),
+                         f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
 for key in ext_meta.get("sets", {}):
     g = [r for r in ext_results if r["id"].startswith(key)]
     if g:
         rows_out.append((f"ท้าทายเพิ่มเติม ชุด {key}", len(g), "—", sum(r["verdict"] == "ถูกครบ" for r in g),
                          sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in g),
                          f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
-if ext_results:
-    allr = live_results + ext_results
+if ext_results or extra_results:
+    allr = live_results + extra_results + ext_results
     at = [r["latency_val"] for r in allr]
     rows_out.append(("รวมทั้งหมด", len(allr), "—", sum(r["verdict"] == "ถูกครบ" for r in allr),
                      sum(r["verdict"] == "ถูกบางส่วน" for r in allr), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in allr),
@@ -521,6 +553,8 @@ notes = [
     "4.1) ข้อที่เรียก LLM ตอบไม่เหมือนเดิมทุกรอบ (เช่น M8, H2) ผลตรวจโดยคนผูกกับคำตอบของรอบที่ตรวจ",
     "4.2) ข้อท้าทายเพิ่มเติม 20 ข้อ (X1–X8, Y1–Y6, Z1–Z6) ต่อท้ายในแผ่น All Test Cases: เขียนคำถามและเฉลยจากเล่มก่อนรัน รายงานทุกข้อที่ลอง ผลบันทึกจากรอบวันที่ "
     + ext_meta.get("run_on", "-") + " (docs/challenge_extended.json) ชุด X ใช้ออกแบบการแก้ระบบ ชุด Y/Z เขียนไว้ก่อนแก้แต่ละรอบ (held-out)",
+    "4.3) ชุดเพิ่มระดับง่าย/ปานกลาง/ยาก 24 ข้อ (E10–E17, M10–M17, H8–H15, docs/extra_levels.json): เขียนคำถามแล้วตรวจเฉลยจากเล่มหลังรัน รอบแรกได้ ถูก 14 · ไม่ตรงประเด็น 4 · ผิด 6 จึงแก้ระบบแล้วรันซ้ำทั้งหมด ผลในไฟล์นี้คือรอบหลังแก้ ชุดนี้ใช้นำการแก้ ไม่ใช่ชุด held-out และข้อ H15 (วิชาเลือกตามแขนง) ยังไม่ได้แก้",
+    "4.4) หลังแก้ระบบ รัน 28 ข้อชุดหลักซ้ำ ข้อที่ตอบจากตาราง SQL ได้คำตอบเหมือนเดิมทุกตัวอักษร ข้อที่ผ่าน LLM ตอบเปลี่ยน จึงตรวจใหม่: M8 ลดจาก ถูกครบ เป็น ถูกบางส่วน (ตอบ 12 ถูก แต่เรียก 6 ผิดชื่อ) และข้อ X7 เพิ่มจาก ถูกบางส่วน เป็น ถูกครบ",
     "5) คอลัมน์ 'เส้นทางประมวลผล' ได้จากการ trace โค้ด pipeline (นับว่ามีการเรียก LLM หรือไม่) ไม่ใช่ข้อมูลที่ API ส่งกลับมา",
     "6) เฉลยข้อ H4 เดิมเขียน 48 วิชา แต่ฐานข้อมูลปัจจุบันให้ 52 (DSBA 2560 71 ชื่อ / 2565 75 ชื่อ) ผลของระบบตรงกับฐานข้อมูล",
 ]
@@ -544,7 +578,7 @@ for ci, h in enumerate(headers, start=1):
     c = wt.cell(row=1, column=ci, value=h)
     c.font, c.fill, c.alignment, c.border = font_header, fill_header, align_center, thin_border
 wt.row_dimensions[1].height = 32
-for ri, r in enumerate(live_results + ext_results, start=2):
+for ri, r in enumerate(live_results + extra_results + ext_results, start=2):
     wt.row_dimensions[ri].height = 80
     lvl_fill = fill_easy if "ง่าย" in r["level"] else fill_medium if "ปานกลาง" in r["level"] else fill_hard if "ยาก" in r["level"] else fill_challenge
     vals = [r["id"], r["level"], r["program"], r["question"], r["skill"], r["expected"], r["answer"], r["ref"], r["path"],
@@ -570,7 +604,7 @@ for ri, r in enumerate(live_results + ext_results, start=2):
 for i, w in enumerate([8, 16, 10, 36, 28, 42, 52, 30, 34, 10, 12, 14, 44, 10, 8], start=1):
     wt.column_dimensions[get_column_letter(i)].width = w
 wt.freeze_panes = "A2"
-wt.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{n_total + len(ext_results) + 1}"
+wt.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{n_total + len(extra_results) + len(ext_results) + 1}"
 
 # ── Sheet 3: Criteria (measured, no scores awarded) ──
 wc = wb.create_sheet(title="Challenge Criteria (Measured)")

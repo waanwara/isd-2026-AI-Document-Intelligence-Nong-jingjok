@@ -133,11 +133,11 @@
       "title": "หน่วยกิตต่อภาคอยู่ระหว่าง 9-22",
       "catches": "บางวิชาตกหล่น หรือมีวิชาจากหน้าอื่นปนเข้ามา",
       "severity": "warning",
-      "checked": 45,
+      "checked": 44,
       "finding_count": 6,
       "error_count": 0,
       "warning_count": 6,
-      "pass_rate": 0.8667,
+      "pass_rate": 0.8636,
       "passed": false,
       "findings": [
         {

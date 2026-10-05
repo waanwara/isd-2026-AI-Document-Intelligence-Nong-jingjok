@@ -186,6 +186,53 @@ def parse_courses_from_text(
     return courses
 
 
+_CONT_TOTAL_RE = re.compile(r"(?<![ก-๙])รวม\s*\|?\s*\d{1,2}(?![\d.])")
+_CONT_CODE_RE = re.compile(r"(?<!\d)(\d{8})(?!\d)")
+
+
+def repair_continuation_pages(conn: sqlite3.Connection) -> int:
+    """ตารางแผนที่ล้นไปหน้าถัดไปโดยไม่มีหัว 'ปีที่ X ภาคการศึกษาที่ Y' ใช้ปี/ภาคของหน้าก่อน.
+
+    หน้าต่อตารางไม่มี marker จึงไม่ถูกจับคู่ตอน pre-pass และวิชาในหน้านั้นไปได้ปี/ภาค
+    จากหน้าอื่นที่เอ่ยถึงรหัสเดียวกัน (เช่น หน้าสรุปที่มีคำว่า "ปีที่ 4 ภาคการศึกษาที่ 2")
+    — พบใน IT 2565 หน้า 36 ที่เป็นตารางปี 3 ภาค 2 ต่อจากหน้า 35
+
+    เงื่อนไขแคบโดยตั้งใจ: ต้องเป็นหน้าที่อยู่ถัดจากหน้าที่มี marker ทันที, มีแถว "รวม N"
+    ของตารางแผน และมีรหัสวิชาอย่างน้อย 2 ตัว คืนจำนวนวิชาที่แก้
+    """
+    ys_re = _YEAR_SEM_RE
+    fixed = 0
+    for version_id, document_id in conn.execute("SELECT version_id, document_id FROM document").fetchall():
+        prev_last: tuple[int, int] | None = None
+        pages = conn.execute(
+            "SELECT page_number, page_text FROM page WHERE document_id=? ORDER BY page_number",
+            (document_id,),
+        ).fetchall()
+        for page_no, text in pages:
+            ms = list(ys_re.finditer(text))
+            if ms:
+                prev_last = (int(ms[-1].group(1)), int(ms[-1].group(2)))
+                continue
+            codes = set(_CONT_CODE_RE.findall(text))
+            if prev_last and _CONT_TOTAL_RE.search(text) and len(codes) >= 2:
+                year, sem = prev_last
+                for code in codes:
+                    cur = conn.execute(
+                        "UPDATE course SET year=?, semester=? "
+                        "WHERE version_id=? AND code=? AND (year IS NOT ? OR semester IS NOT ?)",
+                        (year, sem, version_id, code, year, sem),
+                    )
+                    if cur.rowcount:
+                        fixed += cur.rowcount
+                        conn.execute(
+                            "UPDATE plan_slot SET year=?, semester=? WHERE version_id=? AND course_id IN "
+                            "(SELECT course_id FROM course WHERE version_id=? AND code=?)",
+                            (year, sem, version_id, version_id, code),
+                        )
+            prev_last = None
+    return fixed
+
+
 def populate(db_path: Path | str) -> dict[str, int]:
     """สแกนทุก chunk แล้ว populate course + plan_slot tables.
 
@@ -510,10 +557,13 @@ def populate(db_path: Path | str) -> dict[str, int]:
             )
             plan_slots_inserted += cur_slot.rowcount or 0
 
+    repaired = repair_continuation_pages(conn)
+
     conn.commit()
     conn.close()
 
     return {
+        "continuation_repaired": repaired,
         "courses_inserted": courses_inserted,
         "plan_slots_inserted": plan_slots_inserted,
         "pages_scanned": len(rows),
