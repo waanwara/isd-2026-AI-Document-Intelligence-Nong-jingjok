@@ -364,6 +364,9 @@ EXT_PATH = Path("docs/challenge_extended.json")
 EXT_PATHS = {
     "credit_compare": ("เทียบหน่วยกิตรวมจากตาราง rule (มี provenance) — ไม่ผ่าน LLM", "sql"),
     "prerequisite": ("Structured SQL (prerequisite) — ไม่ผ่าน LLM", "sql"),
+    "plan_variant": ("Structured SQL (อ่านตารางแผนปกติ/แผนสหกิจจากเล่ม) — ไม่ผ่าน LLM", "sql"),
+    "category_credits": ("Structured SQL (โครงสร้างหน่วยกิตรายหมวด ตาราง rule มีหน้าที่มา) — ไม่ผ่าน LLM", "sql"),
+    "grad_audit": ("คำนวณเทียบเกณฑ์จากตาราง rule ของหลักสูตร (ไม่ผ่าน LLM)", "sql"),
 }
 
 
@@ -390,7 +393,8 @@ if EXTRA_PATH.exists():
     for it in extra["items"]:
         kind = "sql" if "ไม่ผ่าน LLM" in it["path"] else "llm"
         extra_results.append({
-            "id": it["id"], "level": f"ระดับ {LEVEL_NO[it['level']]}: {it['level']} (ชุดเพิ่ม)", "program": it["program"],
+            "id": it["id"], "level": f"ระดับ {LEVEL_NO[it['level']]}: {it['level']} ({'ชุดใหม่ W' if it.get('group') == 'heldout' else 'ชุดเพิ่ม'})",
+            "program": it["program"],
             "question": it["question"], "skill": "ชุดเพิ่ม: ข้อเท็จจริง / prerequisite / วิชาที่ไม่มี / สรุปจากแผน (ตรวจเฉลยจากเล่ม)",
             "expected": it["expected"], "answer": it["answer"], "ref": _ref_with_pages(it["source"], it.get("pages", [])),
             "path": it["path"], "path_kind": kind,
@@ -490,7 +494,7 @@ meta = [
     ("สถาปัตยกรรม:", "Structured SQL (SQLite) + Hybrid retrieval (FTS5 + bge-m3) + Typhoon LLM สำหรับคำถามเชิงเหตุผล"),
     ("LLM:", "Typhoon v2.5 30B-A3B (typhoon-v2.5-30b-a3b-instruct) ผ่าน OpenAI-compatible API"),
     ("ข้อมูล:", "14 เล่มหลักสูตร (3,689 หน้า, 1,419 รายวิชา)"),
-    ("จำนวนข้อทดสอบ:", f"{n_total} ข้อชุดหลัก (E1–E9, M1–M9, H1–H7, C1–C3) + {len(extra_results)} ข้อชุดเพิ่มระดับง่าย/ปานกลาง/ยาก (E10–H15) + {len(ext_results)} ข้อท้าทายเพิ่มเติม (X1–Z6) = {n_total + len(extra_results) + len(ext_results)} ข้อ"),
+    ("จำนวนข้อทดสอบ:", f"{n_total} ข้อชุดหลัก (E1–E9, M1–M9, H1–H7, C1–C3) + {len(extra_results)} ข้อชุดเพิ่ม (ระดับง่าย/ปานกลาง/ยาก E10–H15 และชุดใหม่ W1–W10) + {len(ext_results)} ข้อท้าทายเพิ่มเติม (X1–Z6) = {n_total + len(extra_results) + len(ext_results)} ข้อ"),
     ("ตรวจคำสำคัญ (auto):", f"{n_kw}/{n_total} ข้อ — เกณฑ์หลวม (บางข้อตรวจแค่มีตัวเลข) ไม่ใช่การยืนยันว่าถูก"),
     ("ตรวจโดยคน (เทียบเฉลย):", f"ถูกครบ {n_full} · ถูกบางส่วน {n_part} · ผิด/ไม่ตรงเฉลย {n_wrong} · ยังไม่ได้ตรวจ {n_unrev}"),
     ("เวลาตอบ:", f"เฉลี่ย {sum(times)/n_total:.2f}s · เร็วสุด {min(times):.2f}s · ช้าสุด {max(times):.2f}s · ต่ำกว่า 5s {sum(t < 5 for t in times)}/{n_total} ข้อ"),
@@ -516,11 +520,16 @@ for key, label in LEVELS:
                      f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
 rows_out.append(("รวม (ชุดหลัก)", n_total, n_kw, n_full, n_part, n_wrong, f"{sum(times)/n_total:.2f}", f"{max(times):.2f}"))
 for key, label in LEVELS[:3]:
-    g = [r for r in extra_results if key in r["level"]]
+    g = [r for r in extra_results if key in r["level"] and "ชุดเพิ่ม" in r["level"]]
     if g:
         rows_out.append((f"ชุดเพิ่ม {label}", len(g), "—", sum(r["verdict"] == "ถูกครบ" for r in g),
                          sum(r["verdict"] == "ถูกบางส่วน" for r in g), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in g),
                          f"{sum(r['latency_val'] for r in g)/len(g):.2f}", f"{max(r['latency_val'] for r in g):.2f}"))
+_w = [r for r in extra_results if "ชุดใหม่ W" in r["level"]]
+if _w:
+    rows_out.append(("ชุดใหม่ W1–W10 (โครงสร้างหน่วยกิต/แผนสหกิจ)", len(_w), "—", sum(r["verdict"] == "ถูกครบ" for r in _w),
+                     sum(r["verdict"] == "ถูกบางส่วน" for r in _w), sum(r["verdict"] in ("ผิด", "ไม่ตรงเฉลย") for r in _w),
+                     f"{sum(r['latency_val'] for r in _w)/len(_w):.2f}", f"{max(r['latency_val'] for r in _w):.2f}"))
 for key in ext_meta.get("sets", {}):
     g = [r for r in ext_results if r["id"].startswith(key)]
     if g:
@@ -553,8 +562,9 @@ notes = [
     "4.1) ข้อที่เรียก LLM ตอบไม่เหมือนเดิมทุกรอบ (เช่น M8, H2) ผลตรวจโดยคนผูกกับคำตอบของรอบที่ตรวจ",
     "4.2) ข้อท้าทายเพิ่มเติม 20 ข้อ (X1–X8, Y1–Y6, Z1–Z6) ต่อท้ายในแผ่น All Test Cases: เขียนคำถามและเฉลยจากเล่มก่อนรัน รายงานทุกข้อที่ลอง ผลบันทึกจากรอบวันที่ "
     + ext_meta.get("run_on", "-") + " (docs/challenge_extended.json) ชุด X ใช้ออกแบบการแก้ระบบ ชุด Y/Z เขียนไว้ก่อนแก้แต่ละรอบ (held-out)",
-    "4.3) ชุดเพิ่มระดับง่าย/ปานกลาง/ยาก 24 ข้อ (E10–E17, M10–M17, H8–H15, docs/extra_levels.json): เขียนคำถามแล้วตรวจเฉลยจากเล่มหลังรัน รอบแรกได้ ถูก 14 · ไม่ตรงประเด็น 4 · ผิด 6 จึงแก้ระบบแล้วรันซ้ำทั้งหมด ผลในไฟล์นี้คือรอบหลังแก้ ชุดนี้ใช้นำการแก้ ไม่ใช่ชุด held-out และข้อ H15 (วิชาเลือกตามแขนง) ยังไม่ได้แก้",
-    "4.4) หลังแก้ระบบ รัน 28 ข้อชุดหลักซ้ำ ข้อที่ตอบจากตาราง SQL ได้คำตอบเหมือนเดิมทุกตัวอักษร ข้อที่ผ่าน LLM ตอบเปลี่ยน จึงตรวจใหม่: M8 ลดจาก ถูกครบ เป็น ถูกบางส่วน (ตอบ 12 ถูก แต่เรียก 6 ผิดชื่อ) และข้อ X7 เพิ่มจาก ถูกบางส่วน เป็น ถูกครบ",
+    "4.3) ชุดเพิ่มระดับง่าย/ปานกลาง/ยาก 24 ข้อ (E10–E17, M10–M17, H8–H15, docs/extra_levels.json): เขียนคำถามแล้วตรวจเฉลยจากเล่มหลังรัน รอบแรกได้ ถูก 14 · ไม่ตรงประเด็น 4 · ผิด 6 จึงแก้ระบบแล้วรันซ้ำ ผลในไฟล์นี้คือรอบหลังแก้ ชุดนี้ใช้นำการแก้ ไม่ใช่ชุด held-out ข้อ H15 (วิชาเลือกตามแขนง) ยังไม่ได้แก้",
+    "4.4) การแก้รอบหลัง (ตารางโครงสร้างหน่วยกิตรายหมวด + อ่านตารางแผนปกติ/แผนสหกิจจากเล่ม) แล้วรันซ้ำทั้งหมด: ข้อที่ตอบจาก SQL ได้คำตอบเดิม ข้อที่ผ่าน LLM ตอบเปลี่ยนจึงตรวจใหม่ M8 และ H5 ตอนนี้ตอบจากตาราง rule (M8 เป็น ถูกครบ ตอบคงที่) C3 ตอบจากตารางแผนสหกิจ (ถูกครบ ตรวจกับเล่ม: เฉลยเดิมของ C3 คลาดเคลื่อน โครงงาน 2 อยู่ปี 4 ภาค 1 ทั้งสองแผน) ข้อ X4, X8, Y4, Z3, H11 เปลี่ยนเป็น ถูกครบ ส่วน X7 ถูกครบ/X5 ถูกบางส่วน เป็นผลของ LLM ที่เปลี่ยนไปตามรอบ",
+    "4.5) ชุดใหม่ W1–W10 (โครงสร้างหน่วยกิตรายหมวด + แผนสหกิจ) เขียนคำถามและเฉลยจากเล่มก่อนรัน รอบแรกได้ ถูกครบ 8 · บางส่วน 2 (W9 ระบุภาคที่ต่างเกินจริงเพราะเรียงแถวต่างกัน, W10 ตารางขาดปี 3 ภาค 2) แก้แบบทั่วไป (ไม่เขียนตอบเฉพาะข้อ) แล้วรันซ้ำ ผลในไฟล์คือรอบหลังแก้ จึงไม่ใช่ชุดที่ซ่อนไว้วัดอย่างสะอาด",
     "5) คอลัมน์ 'เส้นทางประมวลผล' ได้จากการ trace โค้ด pipeline (นับว่ามีการเรียก LLM หรือไม่) ไม่ใช่ข้อมูลที่ API ส่งกลับมา",
     "6) เฉลยข้อ H4 เดิมเขียน 48 วิชา แต่ฐานข้อมูลปัจจุบันให้ 52 (DSBA 2560 71 ชื่อ / 2565 75 ชื่อ) ผลของระบบตรงกับฐานข้อมูล",
 ]

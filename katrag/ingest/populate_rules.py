@@ -186,6 +186,12 @@ def populate(db_path: Path | str) -> dict[str, int]:
         inserted += 1
 
     conn.commit()
+    conn.close()
+    # หน่วยกิตรายหมวด/กลุ่มวิชา (credits.*) — อ่านจากหน้าโครงสร้างหลักสูตร ตรวจเทียบหน้าก่อนบันทึก
+    from katrag.ingest.populate_structure_rules import populate as populate_structure
+
+    populate_structure(db_path)
+    conn = sqlite3.connect(str(db_path))
     total = conn.execute("SELECT COUNT(*) FROM rule").fetchone()[0]
     conn.close()
     return {

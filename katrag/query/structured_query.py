@@ -28,6 +28,9 @@ class StructuredResult:
     # (เดิม citation มาจาก chunk ที่ retrieval ดึงมา ซึ่งอาจไม่ใช่หน้าที่ให้คำตอบ)
     codes: list[str] = field(default_factory=list)
     version_id: int | None = None
+    # หน้าต้นทางของคำตอบที่ไม่ได้มาจากรหัสวิชา (โครงสร้างหน่วยกิต, ตารางแผน):
+    # [(document_id, page, heading)] — ถ้ามี ใช้เป็น citation แทนการหาจากรหัสวิชา
+    pages: list[tuple[str, int, str]] = field(default_factory=list)
 
 
 def detect_program(question: str) -> str | None:
@@ -1026,13 +1029,20 @@ def try_semester_load(conn: sqlite3.Connection, question: str) -> StructuredResu
     if not resolved:
         return StructuredResult(False, "", "", "none")
     vid = resolved[0]
-    totals = semester_totals(conn, vid)
+    from katrag.query.plan_variants import _flags as _plan_flags, plan_blocks, variant_totals
+
+    variant = "coop" if _plan_flags(question)[0] else "default"
+    mp = variant_totals(plan_blocks(conn, vid), variant)
+    totals = {k: (b.total, b.pages[0]) for k, b in mp.items() if b.total is not None}
+    if not totals:
+        totals = semester_totals(conn, vid)
     if not totals:
         return StructuredResult(False, "", "", "none")
 
     label = _versions_label(conn, [vid])
     want_min = any(w in question for w in _LOAD_MIN_KW)
-    lines = [f"หน่วยกิตต่อภาคตามแผนการศึกษาของ {label} (จากบรรทัด 'รวม' ของแต่ละภาคในเล่ม รวมวิชาเลือกที่แผนกำหนดแล้ว):"]
+    plan_name = "แผนที่เข้าโครงการสหกิจศึกษา" if variant == "coop" else "แผนปกติ"
+    lines = [f"หน่วยกิตต่อภาคตาม{plan_name}ของ {label} (จากบรรทัด 'รวม' ของแต่ละภาคในเล่ม รวมวิชาเลือกที่แผนกำหนดแล้ว):"]
     for (y, s), (cr, pg) in sorted(totals.items()):
         lines.append(f"  - ปีที่ {y} ภาคการศึกษาที่ {s}: {cr} หน่วยกิต (หน้า {pg})")
 
@@ -1052,7 +1062,14 @@ def try_semester_load(conn: sqlite3.Connection, question: str) -> StructuredResu
             f"หมายเหตุ: อ่านตัวเลขรวมได้ {len(totals)} ภาค ผลรวม {total} หน่วยกิต ไม่เท่าหน่วยกิตรวมของหลักสูตร "
             f"{rule[0]:g} หน่วยกิต อาจมีบางภาคที่อ่านจากเล่มไม่ได้"
         )
-    return StructuredResult(True, "\n".join(lines), label, "semester_load", version_id=vid)
+    doc = conn.execute(
+        "SELECT document_id FROM document WHERE version_id=? AND degree_level='bachelor'", (vid,)
+    ).fetchone()
+    pages = sorted({pg for _c, pg in totals.values()})
+    return StructuredResult(
+        True, "\n".join(lines), label, "semester_load", version_id=vid,
+        pages=[(doc[0], pg, "ตารางแผนการศึกษา") for pg in pages] if doc else [],
+    )
 
 
 _TOTAL_CREDIT_KW = (
@@ -1380,7 +1397,7 @@ def try_rule_answer(conn: sqlite3.Connection, question: str) -> StructuredResult
 
     rows = conn.execute(
         "SELECT rule_kind, attribute, comparator, value_numeric, value_text "
-        "FROM rule WHERE version_id=? AND rule_kind=? ORDER BY attribute",
+        "FROM rule WHERE version_id=? AND rule_kind=? AND attribute NOT LIKE 'credits.%' ORDER BY attribute",
         (version_id, rule_kind),
     ).fetchall()
     if not rows:
@@ -1413,6 +1430,111 @@ def _resolve_version_for_rule(conn: sqlite3.Connection, program: str) -> int | N
         (program,),
     ).fetchone()
     return row[0] if row else None
+
+
+# ── โครงสร้างหน่วยกิตรายหมวด/กลุ่มวิชา (rule: attribute 'credits.*') ──────────
+
+#: คำที่บ่งชี้ว่าถามหน่วยกิตของหมวด/กลุ่มวิชา (ไม่ใช่รายวิชา)
+_STRUCT_CATEGORY_KW = (
+    "ศึกษาทั่วไป", "เลือกเสรี", "วิชาแกน", "พื้นฐานวิชาชีพ", "การศึกษาทางเลือก", "วิชาชีพเฉพาะด้าน",
+    "เฉพาะด้าน", "เฉพาะเลือก", "วิชาเลือกเฉพาะ", "วิชาชีพเลือก", "บังคับเฉพาะ", "หมวดวิชาเฉพาะ",
+)
+_STRUCT_EXCLUDE_KW = ("กี่วิชา", "มีวิชาอะไร", "วิชาอะไรบ้าง", "ชื่อวิชา", "รหัสวิชา", "ภาคการศึกษา", "เทอม")
+
+
+_SYNONYM_HINT_RE = re.compile(r"\(เอกสารอาจใช้คำ:[^)]*\)")
+
+
+def _strip_synonym_hint(question: str) -> str:
+    """ตัดคำใบ้คำเทียบเคียงที่ pipeline ต่อท้ายคำถามออก — ไม่ใช่คำที่ผู้ถามพูด."""
+    return _SYNONYM_HINT_RE.sub("", question)
+
+
+def detect_structure_intent(question: str) -> bool:
+    """ถามหน่วยกิตของหมวด/กลุ่มวิชาตามโครงสร้างหลักสูตร เช่น "หมวดวิชาศึกษาทั่วไปเก็บกี่หน่วยกิต"."""
+    question = _strip_synonym_hint(question)
+    if "หน่วยกิต" not in question or detect_course_code(question):
+        return False
+    if any(k in question for k in _STRUCT_EXCLUDE_KW) or detect_year(question) is not None:
+        return False
+    if not any(k in question for k in _STRUCT_CATEGORY_KW):
+        return False
+    return "หมวด" in question or "กลุ่ม" in question
+
+
+def _struct_matches(question: str, attr: str) -> bool:
+    """attribute นี้คือสิ่งที่คำถามพูดถึงไหม."""
+    key = attr.replace("credits.", "")
+    q = question
+    if "เลือกเสรี" in q and key == "free_elective":
+        return True
+    if "ศึกษาทั่วไป" in q and key == "general_education":
+        return True
+    if "วิชาแกน" in q and key == "specific.core":
+        return True
+    if "พื้นฐานวิชาชีพ" in q and key.endswith(".foundation"):
+        return True
+    if "การศึกษาทางเลือก" in q and key.endswith(".alternative"):
+        return True
+    if any(k in q for k in ("วิชาชีพเฉพาะด้าน", "เฉพาะด้าน")) and key == "specific.professional":
+        return True
+    if any(k in q for k in ("เฉพาะเลือก", "วิชาเลือกเฉพาะ", "วิชาชีพเลือก")) and key in (
+        "specific.professional", "specific.elective", "specific.elective_it", "specific.ai_elective",
+        "specific.alternative",
+    ):
+        return True
+    if "บังคับเฉพาะ" in q and key.endswith("required_track"):
+        return True
+    if "หมวดวิชาเฉพาะ" in q and "เฉพาะเลือก" not in q and key == "specific":
+        return True
+    return False
+
+
+def try_structure_answer(conn: sqlite3.Connection, question: str) -> StructuredResult:
+    """ตอบหน่วยกิตของหมวด/กลุ่มวิชาจากตาราง rule (อ่านจากหน้าโครงสร้างหลักสูตรในเล่ม พร้อมหน้าที่มา)."""
+    question = _strip_synonym_hint(question)
+    program = detect_program(question)
+    if not program:
+        return StructuredResult(False, "", "", "none")
+    named = [(v, y) for v, p, y in detect_versions(conn, question) if p == program]
+    version_id = named[0][0] if len(named) == 1 else _resolve_version_for_rule(conn, program)
+    if version_id is None:
+        return StructuredResult(False, "", "", "none")
+    rows = conn.execute(
+        "SELECT r.attribute, r.value_numeric, r.value_text, p.document_id, p.page_number "
+        "FROM rule r JOIN provenance p ON p.provenance_id = r.provenance_id "
+        "WHERE r.version_id=? AND r.attribute LIKE 'credits.%' ORDER BY r.rule_id",
+        (version_id,),
+    ).fetchall()
+    if not rows:
+        return StructuredResult(False, "", "", "none")
+    label = _versions_label(conn, [version_id])
+    hit = [r for r in rows if _struct_matches(question, r[0])]
+    if not hit:
+        return StructuredResult(False, "", "", "none")
+
+    def _fmt(r) -> str:
+        name, _, note = (r[2] or "").partition(" | ")
+        return f"{name} {r[1]:g} หน่วยกิต" + (f" ({note})" if note else "") + f" — หน้า {r[4]}"
+
+    lines = [f"หน่วยกิตตามโครงสร้างหลักสูตร {label} (จากหน้าโครงสร้างหลักสูตรใน มคอ.2):", ""]
+    lines += [f"▶ {_fmt(r)}" for r in hit]
+    lines += ["", "โครงสร้างทั้งหมดของหลักสูตร:"]
+    for r in rows:
+        depth = r[0].count(".") - 1
+        mark = " ◀" if r in hit else ""
+        name, _, note = (r[2] or "").partition(" | ")
+        lines.append(f"{'  ' * (depth + 1)}- {name} {r[1]:g} หน่วยกิต{mark}")
+    total = conn.execute(
+        "SELECT value_numeric FROM rule WHERE version_id=? AND attribute='min_total_credits'", (version_id,)
+    ).fetchone()
+    if total and total[0] is not None:
+        lines.append(f"\nหน่วยกิตรวมตลอดหลักสูตร {total[0]:g} หน่วยกิต")
+    pages = sorted({(r[3], r[4]) for r in hit})
+    return StructuredResult(
+        True, "\n".join(lines), label, "category_credits", version_id=version_id,
+        pages=[(d, p, "โครงสร้างหลักสูตร 3.1.2") for d, p in pages],
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1626,6 +1748,74 @@ VERIFIED_GRAD_RULES = {
 }
 
 
+def _try_generic_audit(conn: sqlite3.Connection, question: str, program: str) -> StructuredResult:
+    """ตรวจหน่วยกิตที่ผู้ถามระบุ กับเกณฑ์ในตาราง rule ของหลักสูตรนั้น (รวม + ศึกษาทั่วไป/เฉพาะ/เลือกเสรี)."""
+    m_tot = re.search(r"รวม\s*(\d+)\s*หน่วยกิต", question)
+    if not m_tot:
+        return StructuredResult(False, "", "", "none")
+    named = [(v, y) for v, p, y in detect_versions(conn, question) if p == program]
+    version_id = named[0][0] if len(named) == 1 else _resolve_version_for_rule(conn, program)
+    if version_id is None:
+        return StructuredResult(False, "", "", "none")
+    req = {
+        r[0]: r[1] for r in conn.execute(
+            "SELECT attribute, value_numeric FROM rule WHERE version_id=? AND attribute IN "
+            "('min_total_credits','credits.general_education','credits.specific','credits.free_elective')",
+            (version_id,),
+        )
+    }
+    if "min_total_credits" not in req:
+        return StructuredResult(False, "", "", "none")
+
+    def _grab(pattern: str) -> int | None:
+        m = re.search(pattern, question)
+        return int(m.group(1)) if m else None
+
+    student = {
+        "credits.general_education": _grab(r"(?:ศึกษาทั่วไป|ทั่วไป)\s*(?:เก็บได้|ได้)?\s*(\d+)"),
+        "credits.specific": _grab(r"(?:วิชาเฉพาะ|เฉพาะ)(?!เลือก|ด้าน)\s*(?:เก็บได้|ได้)?\s*(\d+)"),
+        "credits.free_elective": _grab(r"เลือกเสรี\s*(?:เก็บได้|ได้)?\s*(\d+)"),
+    }
+    names = {
+        "credits.general_education": "หมวดวิชาศึกษาทั่วไป",
+        "credits.specific": "หมวดวิชาเฉพาะ",
+        "credits.free_elective": "หมวดวิชาเลือกเสรี",
+    }
+    total, need = int(m_tot.group(1)), float(req["min_total_credits"])
+    label = _versions_label(conn, [version_id])
+    short = need - total
+    lines = [f"ผลการตรวจสอบเงื่อนไขการสำเร็จการศึกษา (หลักสูตร {label}):", ""]
+    lines.append(
+        "▶ สรุป: **ยังไม่ครบเงื่อนไขสำเร็จการศึกษา**" if short > 0 or any(
+            student[k] is not None and k in req and student[k] < req[k] for k in student
+        ) else "▶ สรุป: ผ่านเกณฑ์ที่ตรวจได้จากตัวเลขที่ระบุ"
+    )
+    lines.append("")
+    lines.append("เทียบกับเกณฑ์ตามโครงสร้างหลักสูตรในเล่ม:")
+    for k, nm in names.items():
+        if k not in req:
+            continue
+        got = student[k]
+        if got is None:
+            lines.append(f"- {nm}: เกณฑ์ {req[k]:g} หน่วยกิต (คำถามไม่ได้ระบุว่าเก็บได้เท่าไร)")
+        elif got < req[k]:
+            lines.append(f"- {nm}: เก็บได้ {got} เกณฑ์ {req[k]:g} → **ขาดอีก {req[k] - got:g} หน่วยกิต**")
+        else:
+            lines.append(f"- {nm}: เก็บได้ {got} เกณฑ์ {req[k]:g} → ครบตามเกณฑ์")
+    if short > 0:
+        lines.append(f"- หน่วยกิตรวม: เก็บได้ {total} เกณฑ์ไม่น้อยกว่า {need:g} → **ขาดอีก {short:g} หน่วยกิต**")
+    else:
+        lines.append(f"- หน่วยกิตรวม: เก็บได้ {total} เกณฑ์ไม่น้อยกว่า {need:g} → ครบตามเกณฑ์")
+    pg = conn.execute(
+        "SELECT p.document_id, p.page_number FROM rule r JOIN provenance p ON p.provenance_id=r.provenance_id "
+        "WHERE r.version_id=? AND r.attribute='min_total_credits'", (version_id,)
+    ).fetchone()
+    return StructuredResult(
+        True, "\n".join(lines), label, "grad_audit", version_id=version_id,
+        pages=[(pg[0], pg[1], "จำนวนหน่วยกิตรวมตลอดหลักสูตร")] if pg else [],
+    )
+
+
 def try_graduation_audit(conn: sqlite3.Connection, question: str) -> StructuredResult:
     """เทียบหน่วยกิตที่ผู้ถามระบุมา กับเกณฑ์ที่ตรวจทานแล้ว (เฉพาะ DSBA 2565).
 
@@ -1637,7 +1827,7 @@ def try_graduation_audit(conn: sqlite3.Connection, question: str) -> StructuredR
     program = detect_program(question) or "DSBA"
     rules = VERIFIED_GRAD_RULES.get(program)
     if rules is None:
-        return StructuredResult(False, "", "", "none")
+        return _try_generic_audit(conn, question, program)
     req_total = rules["total"]
 
     # สกัดตัวเลขจากคำถามแบบไดนามิก

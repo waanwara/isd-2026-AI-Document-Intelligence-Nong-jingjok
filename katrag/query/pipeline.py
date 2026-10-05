@@ -51,6 +51,7 @@ from katrag.query.structured_query import (
     detect_program_name_intent,
     detect_rule_intent,
     detect_semester_load_intent,
+    detect_structure_intent,
     detect_year,
     source_pages_for_codes,
     try_course_code,
@@ -65,8 +66,10 @@ from katrag.query.structured_query import (
     try_program_name,
     try_rule_answer,
     try_semester_load,
+    try_structure_answer,
     try_structured_answer,
 )
+from katrag.query.plan_variants import detect_plan_variant_intent, try_plan_variants
 from katrag.query.topic_semantic import (
     answer_topic,
     detect_program_code,
@@ -92,11 +95,12 @@ DIRECT_INTENTS = frozenset({
     "year_sem", "all_courses", "plan_summary", "cross_version",
     "topic_courses", "topic_semantic", "prerequisite", "rule", "person",
     "course_code", "doc_relation", "grad_audit", "credit_compare",
-    "dependents", "semester_load",
+    "dependents", "semester_load", "category_credits", "plan_variant",
 })
 
 ALWAYS_DIRECT_INTENTS = frozenset({
     "course_code", "doc_relation", "grad_audit", "prerequisite", "dependents",
+    "category_credits", "plan_variant",
 })
 
 #: คำที่บ่งชี้ว่าเป็นคำถามเชิงวิเคราะห์ (ต้องให้ LLM ให้เหตุผล ไม่ใช่ list ข้อมูล)
@@ -165,6 +169,8 @@ class StructuredOutcome:
     codes: list[str] = field(default_factory=list)
     version_id: int | None = None
     version_label: str = ""
+    #: หน้าต้นทางที่ handler ระบุเอง [(document_id, page, heading)] — ใช้เป็น citation ก่อนการหาจากรหัสวิชา
+    pages: list[tuple[str, int, str]] = field(default_factory=list)
 
     @property
     def matched(self) -> bool:
@@ -293,6 +299,7 @@ def run_structured(
             codes=list(sr.codes),
             version_id=sr.version_id,
             version_label=sr.version_label,
+            pages=list(getattr(sr, "pages", [])),
         )
 
     # คำถามหัวข้อวิชาที่ไม่ระบุชั้นปี → recall เชิงความหมาย (bge-m3)
@@ -335,6 +342,18 @@ def _dispatch_intent(conn: sqlite3.Connection, question: str):
     # 2.1 เทียบหน่วยกิตรวมของหลายเวอร์ชัน/หลายหลักสูตร (จากตาราง rule)
     if detect_credit_compare_intent(conn, question):
         sr = try_credit_compare(conn, question)
+        if sr.matched:
+            return sr
+
+    # 2.2 แผนปกติ / แผนสหกิจ (อ่านตารางแผนทั้งสองชุดจากเล่ม)
+    if detect_plan_variant_intent(question):
+        sr = try_plan_variants(conn, question)
+        if sr.matched:
+            return sr
+
+    # 2.3 หน่วยกิตตามหมวด/กลุ่มวิชาของโครงสร้างหลักสูตร
+    if detect_structure_intent(question):
+        sr = try_structure_answer(conn, question)
         if sr.matched:
             return sr
 
@@ -667,6 +686,11 @@ def citations_from_structured(
     เมื่อคำตอบมาจาก structured path หน้าที่ retrieval ดึงมาอาจไม่ใช่หน้าที่
     ให้คำตอบ จึงต้องหาหน้าที่รหัสวิชาในคำตอบปรากฏจริงแทน
     """
+    if structured.pages:
+        return [
+            CitationRef(citation_id=f"cite-{i:03d}", document_id=d, page=p, heading=h)
+            for i, (d, p, h) in enumerate(structured.pages[:limit], 1)
+        ]
     if not structured.codes or structured.version_id is None:
         return []
     try:
