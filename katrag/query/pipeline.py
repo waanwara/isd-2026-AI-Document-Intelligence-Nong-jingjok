@@ -726,9 +726,20 @@ def citations_from_structured(
     ให้คำตอบ จึงต้องหาหน้าที่รหัสวิชาในคำตอบปรากฏจริงแทน
     """
     if structured.pages:
+        merged = list(structured.pages)
+        # คำตอบรายวิชา: นอกจากหน้าแผน/กลุ่มวิชาแล้ว ให้มีหน้าตารางรายวิชาและคำอธิบายรายวิชาที่รหัสนั้นปรากฏด้วย
+        if structured.codes and structured.version_id is not None:
+            try:
+                for doc_id, page_no, heading in source_pages_for_codes(
+                    conn, structured.codes, structured.version_id, limit=limit
+                ):
+                    if not any(d == doc_id and p == page_no for d, p, _h in merged):
+                        merged.append((doc_id, page_no, heading or "ตารางรายวิชา/แผนการศึกษา"))
+            except Exception:
+                pass
         return [
             CitationRef(citation_id=f"cite-{i:03d}", document_id=d, page=p, heading=h)
-            for i, (d, p, h) in enumerate(structured.pages[:limit], 1)
+            for i, (d, p, h) in enumerate(merged[:limit], 1)
         ]
     if not structured.codes or structured.version_id is None:
         return []
