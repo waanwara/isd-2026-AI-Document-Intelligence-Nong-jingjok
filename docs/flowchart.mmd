@@ -1,0 +1,40 @@
+flowchart TD
+  subgraph A["A เตรียมข้อมูล (ทำครั้งเดียว ก่อนเปิดระบบ)"]
+    direction LR
+    PDF["PDF 14 เล่ม<br/>3,689 หน้า"] --> SCORE["ให้คะแนนทุกหน้า<br/>4 เกณฑ์ (page quality)"]
+    SCORE --> Q1{"ข้อความฝัง<br/>ดีพอไหม?"}
+    Q1 -- "ดี" --> TL["อ่านข้อความฝัง<br/>text layer · 2,739 หน้า"]
+    Q1 -- "ไม่ดี" --> OCR["OCR อ่านจากภาพ<br/>Tesseract 5 · 950 หน้า"]
+    TL --> FIX["ซ่อมภาษาไทย<br/>แมปสระ/วรรณยุกต์ 28,404 ตัว"]
+    OCR --> FIX
+    FIX --> EXT["สกัดตาราง (regex)<br/>course · plan_slot · rule · person"]
+    FIX --> CHK["หั่นเป็น chunk ~600 ตัวอักษร<br/>11,587 ชิ้น + ดัชนี FTS5<br/>(ยังไม่ใช้ตอนตอบ)"]
+    CHK --> EMB["แปลงเป็นเวกเตอร์ bge-m3<br/>1,024 ตัวเลข/ชิ้น (ขั้นแยก)"]
+    EXT --> DB[("SQLite ไฟล์เดียว<br/>ตาราง + ข้อความ + เวกเตอร์ BLOB")]
+    CHK --> DB
+    EMB --> DB
+  end
+
+  subgraph B["B ตอบคำถาม (ทุกครั้งที่มีคนถาม)"]
+    direction LR
+    ASK["คำถาม + เลือกหลักสูตร"] --> PREP["เตรียมคำถาม<br/>เดาหลักสูตร/ปี · ขยายคำ<br/>ตัดคำไทย (pythainlp)"]
+    PREP --> Q2{"ตารางตอบ<br/>ตรง ๆ ได้ไหม?"}
+    Q2 -- "ได้" --> SQL["ตอบจาก SQL ตรง ๆ<br/>ไม่ผ่าน AI · เร็ว"]
+    Q2 -- "ไม่ได้" --> LEX["ค้นด้วยคำ<br/>นับคำสำคัญ · 30 ชิ้น"]
+    Q2 -- "ไม่ได้" --> SEM["ค้นด้วยความหมาย<br/>bge-m3 × NumPy · 30 ชิ้น"]
+    LEX --> RRF["รวมอันดับ + กรอง<br/>RRF k=60 · ตัดที่ 0.55×<br/>เหลือ ≤ 10 หน้า"]
+    SEM --> RRF
+    RRF --> LLM["Typhoon (LLM)<br/>prompt 2 แบบ · temperature 0.1"]
+    LLM --> SAFE["ตรวจก่อนส่ง<br/>ปิดเลขบัตร 13 หลัก<br/>ตัดอักษรจีน · ติดเลขหน้า"]
+    SAFE --> ANS(["คำตอบ + เลขหน้า + SQL"])
+    SQL --> ANS
+  end
+
+  DB -. "อ่านตารางและเวกเตอร์ที่เตรียมไว้" .-> SQL
+  DB -. "อ่านตารางและเวกเตอร์ที่เตรียมไว้" .-> LEX
+  DB -. "อ่านตารางและเวกเตอร์ที่เตรียมไว้" .-> SEM
+
+  classDef answer fill:#FF6600,stroke:#FF6600,color:#fff
+  classDef store fill:#FFF1E6,stroke:#FF6600,color:#262626
+  class ANS,SQL answer
+  class DB store
